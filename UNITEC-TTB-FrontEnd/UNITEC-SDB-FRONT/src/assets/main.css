@@ -1,0 +1,27 @@
+@import './base.css';
+
+/* Reset completo para ocupar toda la pantalla */
+#app {
+  width: 100%;
+  height: 100vh;
+  margin: 0;
+  padding: 0;
+  max-width: none;
+  /* Quitamos el límite de 1280px */
+}
+
+/* Quitamos el centrado forzado del body que viene por defecto */
+@media (min-width: 1024px) {
+  body {
+    display: block;
+    /* Cambiamos de flex/center a block */
+    place-items: initial;
+  }
+
+  #app {
+    display: block;
+    /* Quitamos el grid de dos columnas */
+    grid-template-columns: none;
+    padding: 0;
+  }
+}
