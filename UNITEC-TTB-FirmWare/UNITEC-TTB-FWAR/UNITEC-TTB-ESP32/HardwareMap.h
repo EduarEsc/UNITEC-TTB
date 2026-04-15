@@ -3,42 +3,55 @@
 
 #include <Arduino.h>
 
-#define SERIAL_BAUD 921600
+#define SERIAL_BAUD 115200
 
-// --- BUS I2S ENTRADA (Micrófono) ---
+// =============================
+// I2S ENTRADA (Micrófono INMP441)
+// =============================
 #define I2S_MIC_SD   42  // GPIO 42
-#define I2S_MIC_SCK  1   // GPIO 01
-#define I2S_MIC_WS   2   // GPIO 02
+#define I2S_MIC_SCK  1   // GPIO 1
+#define I2S_MIC_WS   2   // GPIO 2
 
-// --- BUS I2S SALIDA (DAC PCM5102A) ---
-// Comparten pines con la SD para optimizar el bus
+// =============================
+// I2S SALIDA (DAC PCM5102A)
+// =============================
 #define I2S_DAC_DIN  11  // GPIO 11
 #define I2S_DAC_BCK  12  // GPIO 12
 #define I2S_DAC_LCK  13  // GPIO 13
 
-// --- CONFIGURACIÓN DE PUERTOS I2S ---
-#define I2S_MIC_PORT I2S_NUM_0  // El micrófono usa el puerto 0
-#define I2S_DAC_PORT I2S_NUM_1  // El DAC (audio) usa el puerto 1
+// =============================
+// PUERTOS I2S
+// =============================
+// La librería ESP32-audioI2S usa mejor I2S0 para salida.
+// Dejamos el micrófono en I2S1 para evitar conflicto TX/RX.
+#define I2S_DAC_PORT I2S_NUM_0
+#define I2S_MIC_PORT I2S_NUM_1
 
-// --- MICRO SD CARD (SPI) ---
-#define SD_CS_PIN    10  
-#define SD_SCK_PIN 15  
-#define SD_MOSI_PIN 16
-#define SD_MISO_PIN 17
+// =============================
+// MICRO SD (SPI)
+// =============================
+#define SD_CS_PIN    10
+#define SD_SCK_PIN   15
+#define SD_MOSI_PIN  16
+#define SD_MISO_PIN  17
 
-// --- LUCES (NeoPixel) ---
-#define NEOPIXEL_PIN 18  
-#define NUM_LEDS     16  
+// =============================
+// NEOPIXEL
+// =============================
+#define NEOPIXEL_PIN 18
+#define NUM_LEDS     16
 
-// --- CONTROLES (Con Pull-Up Externo de 10k) ---
-#define BTN_SELECT_PIN    8   // Actúa como "Siguiente" y "Confirmar"
-#define BTN_TURNO_PIN     6   // Gira dado de turnos
-#define BTN_CATEGORIA_PIN 7   // Gira dado de categoría
-#define BTN_P1_PIN        14  // Activa Mic para Jugador 1
-#define BTN_P2_PIN        21  // Activa Mic para Jugador 2
-#define JOY_RIGHT_PIN     4   // Desplazar cartas a la derecha
-#define JOY_LEFT_PIN      5   // Desplazar cartas a la izquierda
+// =============================
+// CONTROLES (activos en LOW)
+// =============================
+#define BTN_SELECT_PIN    8   // Siguiente / Confirmar
+#define BTN_TURNO_PIN     6   // Dado de turnos
+#define BTN_CATEGORIA_PIN 7   // Dado de categoría
+#define BTN_P1_PIN        14  // Micrófono jugador 1
+#define BTN_P2_PIN        21  // Micrófono jugador 2
+#define JOY_RIGHT_PIN     4   // Mover derecha
+#define JOY_LEFT_PIN      5   // Mover izquierda
 
-void setupHardware(); 
+void setupHardware();
 
 #endif

@@ -1,180 +1,295 @@
 #include "LedService.h"
 #include <math.h>
 
-LedService::LedService() : pixels(NUM_LEDS, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800),
-                           estadoActual(IDLE), lastUpdate(0), pixelAnim(0), 
-                           brilloEfecto(50), subiendoBrillo(true), alternarEstado(false) {}
+LedService::LedService()
+    : pixels(NUM_LEDS, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800),
+      estadoBase(IDLE),
+      estadoTemporal(IDLE),
+      usandoTemporal(false),
+      lastUpdate(0),
+      effectStartTime(0),
+      pixelAnim(0) {}
 
 void LedService::setup() {
     pixels.begin();
-    pixels.setBrightness(80); // Un poco más de brillo base
+    pixels.setBrightness(80);
     pixels.clear();
     pixels.show();
 }
 
-void LedService::setEstado(int nuevoEstado) {
-    // Permitimos reiniciar si es un flash o movimiento de palanca para feedback inmediato
-    if (estadoActual == nuevoEstado && 
-        nuevoEstado != BTN_SELECT_FLASH && 
-        nuevoEstado != MOVE_LEFT && 
-        nuevoEstado != MOVE_RIGHT) return; 
-    
-    estadoActual = nuevoEstado;
+bool LedService::isTemporal(LedEstado estado) const {
+    switch (estado) {
+        case BTN_SELECT_FLASH:
+        case BTN_PLAYER_FLASH:
+        case BOMBA_EXPLOTA:
+        case PALABRA_CORRECTA:
+        case PALABRA_INCORRECTA:
+        case MOVE_LEFT:
+        case MOVE_RIGHT:
+            return true;
+        default:
+            return false;
+    }
+}
+
+unsigned long LedService::getTemporalDuration(LedEstado estado) const {
+    switch (estado) {
+        case BTN_SELECT_FLASH:     return 200;
+        case MOVE_LEFT:            return 250;
+        case MOVE_RIGHT:           return 250;
+        case PALABRA_CORRECTA:     return 1200;
+        case PALABRA_INCORRECTA:   return 1200;
+        case BOMBA_EXPLOTA:        return 1500;
+        case BTN_PLAYER_FLASH:     return 0;    // mientras esté activo manualmente
+        default:                   return 0;
+    }
+}
+
+void LedService::setEstado(LedEstado nuevoEstado) {
+    if (isTemporal(nuevoEstado)) {
+        triggerFlash(nuevoEstado);
+        return;
+    }
+
+    if (estadoBase == nuevoEstado && !usandoTemporal) {
+        return;
+    }
+
+    estadoBase = nuevoEstado;
     pixelAnim = 0;
-    lastUpdate = millis();
-    brilloEfecto = 0; 
-    alternarEstado = false;
-    
-    // Limpieza al cambiar de estado
-    pixels.setBrightness(100);
-    pixels.clear();
-    pixels.show();
+    lastUpdate = 0;
+
+    if (!usandoTemporal) {
+        pixels.clear();
+        pixels.show();
+    }
 }
 
-void LedService::update() {
-    unsigned long now = millis();
-    bool needShow = false;
+void LedService::triggerFlash(LedEstado efecto) {
+    estadoTemporal = efecto;
+    usandoTemporal = true;
+    effectStartTime = millis();
+    pixelAnim = 0;
+    lastUpdate = 0;
+}
 
-    switch (estadoActual) {
-        
-        case VISTA_REGLAS: // Azul y Blanco parpadeo suave
-            if (now - lastUpdate > 500) {
-                uint32_t color = alternarEstado ? pixels.Color(0,20,200) : pixels.Color(150,150,150);
-                for(int i=0; i<NUM_LEDS; i++) pixels.setPixelColor(i, color);
-                alternarEstado = !alternarEstado;
+void LedService::renderEstado(LedEstado estado, unsigned long now, bool &needShow) {
+    switch (estado) {
+
+        case VISTA_REGLAS:
+            if (now - lastUpdate >= 500) {
+                static bool alternar = false;
+                uint32_t color = alternar ? pixels.Color(0, 20, 200) : pixels.Color(150, 150, 150);
+                pixels.setBrightness(100);
+                for (int i = 0; i < NUM_LEDS; i++) {
+                    pixels.setPixelColor(i, color);
+                }
+                alternar = !alternar;
                 lastUpdate = now;
                 needShow = true;
             }
             break;
 
-        case VISTA_REGISTRO: // Parpadeo Azul
-            if (now - lastUpdate > 300) {
-                uint32_t color = alternarEstado ? pixels.Color(0,0,150) : 0;
-                for(int i=0; i<NUM_LEDS; i++) pixels.setPixelColor(i, color);
-                alternarEstado = !alternarEstado;
+        case VISTA_REGISTRO:
+            if (now - lastUpdate >= 300) {
+                static bool alternar = false;
+                uint32_t color = alternar ? pixels.Color(0, 0, 150) : 0;
+                pixels.setBrightness(100);
+                for (int i = 0; i < NUM_LEDS; i++) {
+                    pixels.setPixelColor(i, color);
+                }
+                alternar = !alternar;
                 lastUpdate = now;
                 needShow = true;
             }
             break;
 
         case DADO_TURNOS:
-        case DADO_CATEGORIA: // Giro de fuego mejorado con estela
-            if (now - lastUpdate > 40) {
+        case DADO_CATEGORIA:
+            if (now - lastUpdate >= 40) {
                 pixels.clear();
-                // Dibujamos el "cometa" (3 leds de diferente intensidad)
-                for(int i=0; i<4; i++) {
+                pixels.setBrightness(120);
+
+                for (int i = 0; i < 4; i++) {
                     int pos;
                     uint32_t col;
-                    if(i == 0) col = pixels.Color(255, 60, 0);   // Cabeza (Naranja/Rojo)
-                    else if(i == 1) col = pixels.Color(200, 30, 0); // Cuerpo
-                    else col = pixels.Color(100, 0, 0);          // Cola
 
-                    if (estadoActual == DADO_TURNOS)
+                    if (i == 0) col = pixels.Color(255, 60, 0);
+                    else if (i == 1) col = pixels.Color(200, 30, 0);
+                    else col = pixels.Color(100, 0, 0);
+
+                    if (estado == DADO_TURNOS) {
                         pos = (pixelAnim - i + NUM_LEDS) % NUM_LEDS;
-                    else
+                    } else {
                         pos = (pixelAnim + i) % NUM_LEDS;
+                    }
 
                     pixels.setPixelColor(pos, col);
                 }
+
                 pixelAnim = (pixelAnim + 1) % NUM_LEDS;
                 lastUpdate = now;
                 needShow = true;
             }
             break;
 
-        case SEL_CARTAS: // Respiración Verde Orgánica
-            {
-                // Uso de función seno para suavidad total
-                float intensidad = (sin(now / 500.0) + 1) * 60 + 20; 
-                pixels.setBrightness(intensidad);
-                for(int i=0; i<NUM_LEDS; i++) pixels.setPixelColor(i, pixels.Color(0, 200, 0));
-                needShow = true;
-            }
-            break;
-
-        case VISTA_JUEGO: // Sirena Policía (Rojo vs Azul)
-            if (now - lastUpdate > 60) {
-                pixels.clear();
-                int medio = NUM_LEDS / 2;
-                for(int i=0; i<medio; i++) {
-                    pixels.setPixelColor((pixelAnim + i) % NUM_LEDS, pixels.Color(200,0,0));
-                    pixels.setPixelColor((pixelAnim + i + medio) % NUM_LEDS, pixels.Color(0,0,200));
+        case SEL_CARTAS:
+            if (now - lastUpdate >= 30) {
+                float intensidad = (sin(now / 500.0f) + 1.0f) * 60.0f + 20.0f;
+                pixels.setBrightness((uint8_t)intensidad);
+                for (int i = 0; i < NUM_LEDS; i++) {
+                    pixels.setPixelColor(i, pixels.Color(0, 200, 0));
                 }
+                lastUpdate = now;
+                needShow = true;
+            }
+            break;
+
+        case VISTA_JUEGO:
+            if (now - lastUpdate >= 60) {
+                pixels.clear();
+                pixels.setBrightness(100);
+
+                int medio = NUM_LEDS / 2;
+                for (int i = 0; i < medio; i++) {
+                    pixels.setPixelColor((pixelAnim + i) % NUM_LEDS, pixels.Color(200, 0, 0));
+                    pixels.setPixelColor((pixelAnim + i + medio) % NUM_LEDS, pixels.Color(0, 0, 200));
+                }
+
                 pixelAnim = (pixelAnim + 1) % NUM_LEDS;
                 lastUpdate = now;
                 needShow = true;
             }
             break;
 
-        case MOVE_LEFT: // Feedback Palanca Izquierda (Leds 0-7)
-        case MOVE_RIGHT: // Feedback Palanca Derecha (Leds 8-15)
-            if (now - lastUpdate < 250) {
-                int start = (estadoActual == MOVE_LEFT) ? 0 : NUM_LEDS/2;
-                int end = (estadoActual == MOVE_LEFT) ? NUM_LEDS/2 : NUM_LEDS;
-                pixels.clear();
-                for(int i=start; i<end; i++) pixels.setPixelColor(i, pixels.Color(255, 255, 0)); // Amarillo
-                needShow = true;
-            } else {
-                setEstado(VISTA_REGLAS); // Vuelve al estado base automáticamente
-            }
-            break;
-
-        case BTN_SELECT_FLASH: // Flash Rosa Feedback
-            if (now - lastUpdate < 200) {
+        case BTN_SELECT_FLASH:
+            if (now - lastUpdate >= 30) {
                 pixels.setBrightness(255);
-                for(int i=0; i<NUM_LEDS; i++) pixels.setPixelColor(i, pixels.Color(255, 0, 100));
-                needShow = true;
-            } else {
-                setEstado(IDLE); 
-            }
-            break;
-
-        case BTN_PLAYER_FLASH: // Blanco Fijo (Micrófono activo)
-            pixels.setBrightness(200);
-            for(int i=0; i<NUM_LEDS; i++) pixels.setPixelColor(i, pixels.Color(255, 255, 255));
-            needShow = true;
-            break;
-
-        case BOMBA_EXPLOTA: // Rojo Sangre pulsante rápido
-            {
-                int b = 127 + 127 * sin(now / 60.0);
-                pixels.setBrightness(b);
-                for(int i=0; i<NUM_LEDS; i++) pixels.setPixelColor(i, pixels.Color(255, 0, 0));
+                for (int i = 0; i < NUM_LEDS; i++) {
+                    pixels.setPixelColor(i, pixels.Color(255, 0, 100));
+                }
+                lastUpdate = now;
                 needShow = true;
             }
             break;
 
-        case PALABRA_CORRECTA: // Parpadeo Verde Rápido
-            if (now - lastUpdate < 1200) {
-                bool flash = (now / 100) % 2;
-                for(int i=0; i<NUM_LEDS; i++) pixels.setPixelColor(i, flash ? pixels.Color(0,255,0) : 0);
+        case BTN_PLAYER_FLASH:
+            if (now - lastUpdate >= 30) {
+                pixels.setBrightness(200);
+                for (int i = 0; i < NUM_LEDS; i++) {
+                    pixels.setPixelColor(i, pixels.Color(255, 255, 255));
+                }
+                lastUpdate = now;
                 needShow = true;
-            } else {
-                setEstado(VISTA_JUEGO);
             }
             break;
 
-        case PALABRA_INCORRECTA: // Parpadeo Rojo Rápido
-            if (now - lastUpdate < 1200) {
-                bool flash = (now / 100) % 2;
-                for(int i=0; i<NUM_LEDS; i++) pixels.setPixelColor(i, flash ? pixels.Color(255,0,0) : 0);
+        case BOMBA_EXPLOTA:
+            if (now - lastUpdate >= 30) {
+                int b = (int)(127 + 127 * sin(now / 60.0f));
+                if (b < 0) b = 0;
+                if (b > 255) b = 255;
+
+                pixels.setBrightness((uint8_t)b);
+                for (int i = 0; i < NUM_LEDS; i++) {
+                    pixels.setPixelColor(i, pixels.Color(255, 0, 0));
+                }
+                lastUpdate = now;
                 needShow = true;
-            } else {
-                setEstado(VISTA_JUEGO);
+            }
+            break;
+
+        case PALABRA_CORRECTA:
+            if (now - lastUpdate >= 80) {
+                bool flash = ((now / 100) % 2) != 0;
+                pixels.setBrightness(180);
+                for (int i = 0; i < NUM_LEDS; i++) {
+                    pixels.setPixelColor(i, flash ? pixels.Color(0, 255, 0) : 0);
+                }
+                lastUpdate = now;
+                needShow = true;
+            }
+            break;
+
+        case PALABRA_INCORRECTA:
+            if (now - lastUpdate >= 80) {
+                bool flash = ((now / 100) % 2) != 0;
+                pixels.setBrightness(180);
+                for (int i = 0; i < NUM_LEDS; i++) {
+                    pixels.setPixelColor(i, flash ? pixels.Color(255, 0, 0) : 0);
+                }
+                lastUpdate = now;
+                needShow = true;
+            }
+            break;
+
+        case MOVE_LEFT:
+            if (now - lastUpdate >= 30) {
+                pixels.clear();
+                pixels.setBrightness(160);
+                for (int i = 0; i < NUM_LEDS / 2; i++) {
+                    pixels.setPixelColor(i, pixels.Color(255, 255, 0));
+                }
+                lastUpdate = now;
+                needShow = true;
+            }
+            break;
+
+        case MOVE_RIGHT:
+            if (now - lastUpdate >= 30) {
+                pixels.clear();
+                pixels.setBrightness(160);
+                for (int i = NUM_LEDS / 2; i < NUM_LEDS; i++) {
+                    pixels.setPixelColor(i, pixels.Color(255, 255, 0));
+                }
+                lastUpdate = now;
+                needShow = true;
             }
             break;
 
         case IDLE:
-            pixels.clear();
-            needShow = true;
+        default:
+            if (now - lastUpdate >= 250) {
+                pixels.clear();
+                pixels.setBrightness(80);
+                lastUpdate = now;
+                needShow = true;
+            }
             break;
     }
+}
 
-    if (needShow) pixels.show();
+void LedService::update() {
+    unsigned long now = millis();
+    bool needShow = false;
+
+    LedEstado estadoAmostrar = usandoTemporal ? estadoTemporal : estadoBase;
+
+    renderEstado(estadoAmostrar, now, needShow);
+
+    if (usandoTemporal) {
+        unsigned long duration = getTemporalDuration(estadoTemporal);
+
+        if (duration > 0 && (now - effectStartTime >= duration)) {
+            usandoTemporal = false;
+            estadoTemporal = IDLE;
+            pixelAnim = 0;
+            lastUpdate = 0;
+        }
+    }
+
+    if (needShow) {
+        pixels.show();
+    }
 }
 
 void LedService::clear() {
-    estadoActual = IDLE;
+    estadoBase = IDLE;
+    estadoTemporal = IDLE;
+    usandoTemporal = false;
+    pixelAnim = 0;
+    lastUpdate = 0;
+
     pixels.clear();
     pixels.show();
 }

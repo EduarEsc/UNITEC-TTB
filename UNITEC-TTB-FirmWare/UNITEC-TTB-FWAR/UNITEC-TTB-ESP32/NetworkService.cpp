@@ -1,112 +1,218 @@
 #include "NetworkService.h"
 #include <WiFi.h>
 #include <ArduinoJson.h>
-// Incluimos los servicios para que NetworkService pueda darles órdenes
-#include "AudioService.h"
-#include "LedService.h"
-#include "MicService.h"
 
-// --- CONFIGURACIÓN DE RED ---
-const char* ssid = "INFINITUM09F7";
-const char* password = "1q80IK50Qd";
-// Esta IP debe ser la de tu laptop corriendo el backend
-const char* server_url_base = "http://192.168.1.70:8000/audios/"; 
+// =============================
+// CONFIGURACIÓN DE RED
+// =============================
+static const char* ssid = "More";
+static const char* password = "uden5775";
+static const char* server_url_base = "http://10.252.207.203:8000/audios/";
 
+static bool wifiConnected = false;
+static String serialInputBuffer;
+
+// =============================
+// SETUP DE RED
+// =============================
 void setupNetwork() {
-    Serial.println("{\"type\":\"SYSTEM\", \"status\":\"WIFI_CONNECTING\"}");
-    
+    Serial.println("{\"type\":\"SYSTEM\",\"event\":\"WIFI_CONNECTING\"}");
+
+    WiFi.mode(WIFI_STA);
     WiFi.begin(ssid, password);
-    
+
     int attempts = 0;
-    // Aumentamos un poco el tiempo de espera por si el router está lejos
-    while (WiFi.status() != WL_CONNECTED && attempts < 30) {
+    const int maxAttempts = 30;
+
+    while (WiFi.status() != WL_CONNECTED && attempts < maxAttempts) {
         delay(500);
         attempts++;
-        if(attempts % 5 == 0) Serial.print("."); 
+
+        if (attempts % 5 == 0) {
+            Serial.print(".");
+        }
     }
 
     if (WiFi.status() == WL_CONNECTED) {
+        wifiConnected = true;
         Serial.println();
-        Serial.printf("{\"type\":\"SYSTEM\", \"status\":\"WIFI_CONNECTED\", \"ip\":\"%s\"}\n", WiFi.localIP().toString().c_str());
-        
-        // Bienvenida inicial: Da tiempo a que el buffer del DAC se estabilice
-        delay(1500); 
-        audioService.play("1_bienvenida", false); 
-        
-        // Estado visual: Por ejemplo, el 1 (BIENVENIDA/REGISTRO)
-        ledService.setEstado(1); 
+
+        StaticJsonDocument<192> doc;
+        doc["type"] = "SYSTEM";
+        doc["event"] = "WIFI_CONNECTED";
+        doc["ip"] = WiFi.localIP().toString();
+
+        serializeJson(doc, Serial);
+        Serial.println();
     } else {
-        Serial.println("\n{\"type\":\"ERROR\", \"msg\":\"WIFI_FAILED\"}");
+        wifiConnected = false;
+        Serial.println();
+        Serial.println("{\"type\":\"ERROR\",\"event\":\"WIFI_FAILED\"}");
     }
+
+    // Pasamos la URL base al AudioService para fallback por WiFi
+    audioService.setServerBaseUrl(server_url_base);
+
+    // Estado visual inicial
+    ledService.setEstado(VISTA_REGLAS);
+
+    // Audio inicial: primero SD, si no WiFi
+    delay(300);
+    audioService.play("1_bienvenida", false);
 }
 
+// =============================
+// LOOP DE RED / SERIAL
+// =============================
 void updateNetwork() {
-    // 1. Si el Mic está enviando audio binario por Serial, NO leemos JSON
-    // para no corromper el flujo de bytes que va hacia la PC.
-    if (micService.isStreaming()) return;
-
-    // 2. Mantener la conexión WiFi viva
-    if (WiFi.status() != WL_CONNECTED) {
-        // Podrías intentar reconectar aquí si fuera necesario
+    if (micService.isStreaming()) {
+        return;
     }
 
-    // 3. Leer comandos del Backend (Python -> ESP32)
-    if (Serial.available()) {
-        String input = Serial.readStringUntil('\n');
-        input.trim();
-        
-        if (input.length() > 0 && input.startsWith("{")) {
-            processLocalMessage(input);
+    wifiConnected = (WiFi.status() == WL_CONNECTED);
+
+    while (Serial.available() > 0) {
+        char c = (char)Serial.read();
+
+        if (c == '\r') {
+            continue;
+        }
+
+        if (c == '\n') {
+            serialInputBuffer.trim();
+
+            if (serialInputBuffer.length() > 0 && serialInputBuffer.startsWith("{")) {
+                processLocalMessage(serialInputBuffer);
+            }
+
+            serialInputBuffer = "";
+        } else {
+            serialInputBuffer += c;
+
+            if (serialInputBuffer.length() > 1024) {
+                serialInputBuffer = "";
+                Serial.println("{\"type\":\"ERROR\",\"event\":\"SERIAL_INPUT_OVERFLOW\"}");
+            }
         }
     }
 }
 
+// =============================
+// ENVÍO DE EVENTOS
+// =============================
 void sendHardwareAction(String action, String value) {
-    // Usamos StaticJsonDocument para enviar eventos al Backend (ESP32 -> Python)
-    StaticJsonDocument<128> doc;
+    StaticJsonDocument<160> doc;
     doc["type"] = "HW_EVENT";
     doc["action"] = action;
     doc["value"] = value;
-    
+
     serializeJson(doc, Serial);
-    Serial.println(); // Importante para que el 'readline' de Python detecte el fin
+    Serial.println();
 }
 
+// =============================
+// PROCESAMIENTO DE COMANDOS
+// =============================
 void processLocalMessage(String jsonPayload) {
-    StaticJsonDocument<512> doc;
+    StaticJsonDocument<768> doc;
     DeserializationError error = deserializeJson(doc, jsonPayload);
 
     if (error) {
-        Serial.print("{\"type\":\"ERROR\", \"msg\":\"JSON_PARSE_FAILED\"}\n");
+        StaticJsonDocument<160> errDoc;
+        errDoc["type"] = "ERROR";
+        errDoc["event"] = "JSON_PARSE_FAILED";
+        errDoc["detail"] = error.c_str();
+        serializeJson(errDoc, Serial);
+        Serial.println();
         return;
     }
 
     String type = doc["type"] | "";
 
-    // COMANDO: Reproducir Audio
     if (type == "CMD_AUDIO") {
         String file = doc["file"] | "";
         bool loop = doc["loop"] | false;
-        if (file != "") audioService.play(file, loop);
-    } 
-    // COMANDO: Cambiar Luces
+
+        if (file.length() > 0) {
+            audioService.play(file, loop);
+        } else {
+            Serial.println("{\"type\":\"ERROR\",\"event\":\"CMD_AUDIO_FILE_EMPTY\"}");
+        }
+    }
     else if (type == "CMD_LED") {
         int estado = doc["state"] | 0;
-        ledService.setEstado(estado);
+
+        if (estado >= IDLE && estado <= MOVE_RIGHT) {
+            ledService.setEstado((LedEstado)estado);
+        } else {
+            Serial.println("{\"type\":\"ERROR\",\"event\":\"CMD_LED_INVALID_STATE\"}");
+        }
     }
-    // COMANDO: Detener todo (Emergencia/Reset)
+    else if (type == "CMD_LED_FLASH") {
+        int estado = doc["state"] | 0;
+
+        if (estado >= IDLE && estado <= MOVE_RIGHT) {
+            ledService.triggerFlash((LedEstado)estado);
+        } else {
+            Serial.println("{\"type\":\"ERROR\",\"event\":\"CMD_LED_FLASH_INVALID_STATE\"}");
+        }
+    }
     else if (type == "CMD_STOP_ALL") {
         audioService.stop();
         micService.stopStreaming();
-        // ledService.setEstado(0); // Opcional: volver a IDLE
+        ledService.setEstado(IDLE);
     }
-    // COMANDO: Secuencia de audios (Para frases compuestas)
     else if (type == "CMD_SEQUENCE") {
-        JsonArray files = doc["files"];
-        std::vector<String> sequence;
-        for (JsonVariant f : files) {
-            sequence.push_back(f.as<String>());
+        if (!doc["files"].is<JsonArray>()) {
+            Serial.println("{\"type\":\"ERROR\",\"event\":\"CMD_SEQUENCE_INVALID_FILES\"}");
+            return;
         }
-        audioService.playSequence(sequence);
+
+        JsonArray files = doc["files"].as<JsonArray>();
+        std::vector<String> sequence;
+        sequence.reserve(files.size());
+
+        for (JsonVariant f : files) {
+            String name = f.as<String>();
+            name.trim();
+            if (name.length() > 0) {
+                sequence.push_back(name);
+            }
+        }
+
+        if (!sequence.empty()) {
+            audioService.playSequence(sequence);
+        } else {
+            Serial.println("{\"type\":\"ERROR\",\"event\":\"CMD_SEQUENCE_EMPTY\"}");
+        }
+    }
+    else if (type == "CMD_MIC_START") {
+        micService.startStreaming();
+    }
+    else if (type == "CMD_MIC_STOP") {
+        micService.stopStreaming();
+    }
+    else if (type == "CMD_VOLUME") {
+        int value = doc["value"] | 80;
+        audioService.setVolumePercentage(value);
+    }
+    else if (type == "CMD_PING") {
+        StaticJsonDocument<192> pong;
+        pong["type"] = "SYSTEM";
+        pong["event"] = "PONG";
+        pong["wifi"] = wifiConnected;
+        pong["mic"] = micService.isStreaming();
+        pong["audio"] = audioService.isPlaying();
+        pong["sd"] = audioService.isSdReady();
+        serializeJson(pong, Serial);
+        Serial.println();
+    }
+    else {
+        StaticJsonDocument<160> errDoc;
+        errDoc["type"] = "ERROR";
+        errDoc["event"] = "UNKNOWN_COMMAND";
+        errDoc["cmd"] = type;
+        serializeJson(errDoc, Serial);
+        Serial.println();
     }
 }

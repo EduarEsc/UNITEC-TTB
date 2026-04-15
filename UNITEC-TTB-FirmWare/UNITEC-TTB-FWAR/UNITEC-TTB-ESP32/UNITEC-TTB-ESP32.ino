@@ -1,141 +1,230 @@
 #include <Arduino.h>
 #include <SD.h>
 #include <SPI.h>
+
 #include "HardwareMap.h"
 #include "LedService.h"
 #include "MicService.h"
 #include "NetworkService.h"
 #include "AudioService.h"
 
-unsigned long lastDebounceTime = 0;
-const unsigned long debounceDelay = 150; // Reducido un poco para mayor agilidad
+// =============================
+// DEBOUNCE INDIVIDUAL POR ENTRADA
+// =============================
+const unsigned long debounceDelay = 120;
+
+unsigned long lastSelectDebounceTime = 0;
+unsigned long lastTurnoDebounceTime  = 0;
+unsigned long lastCatDebounceTime    = 0;
+unsigned long lastP1DebounceTime     = 0;
+unsigned long lastP2DebounceTime     = 0;
 
 bool lastStateSelect = HIGH;
 bool lastStateTurno  = HIGH;
 bool lastStateCat    = HIGH;
 bool lastStateLeft   = HIGH;
 bool lastStateRight  = HIGH;
+bool lastStateP1     = HIGH;
+bool lastStateP2     = HIGH;
 
+// =============================
+// CONTROL DE REPETICIÓN PALANCA
+// =============================
 unsigned long lastMoveTime = 0;
-const int initialDelay = 400; // Tiempo que espera antes de empezar a hacer scroll
-const int scrollSpeed = 200;  // Velocidad de movimiento cuando se queda presionada
-bool isFirstMove = true;      // Para diferenciar el primer toque del scroll continuo
+const unsigned long initialDelay = 400;
+const unsigned long scrollSpeed  = 200;
+bool isFirstMove = true;
 
-void setup() {
-    // 1. Configuración física de pines y Serial
-    setupHardware(); 
-    
-    // 2. Iniciar comunicación (WiFi/JSON)
-    setupNetwork(); 
+// =============================
+// MICRÓFONO MODO TOGGLE
+// 0 = ninguno, 1 = P1, 2 = P2
+// =============================
+uint8_t activeMicPlayer = 0;
 
-    // 3. Iniciar servicios
-    audioService.setup();
-    ledService.setup(); 
-    //micService.setup(); 
-
-    Serial.println("{\"type\":\"SYSTEM\", \"status\":\"READY_V3_S3_WIFI_MODE\"}");
+// =============================
+// HELPERS
+// =============================
+bool isFallingEdge(bool currentState, bool lastState) {
+    return (lastState == HIGH && currentState == LOW);
 }
 
-void loop() {
-    // --- 1. ACTUALIZACIÓN DE SERVICIOS ---
-    updateNetwork();   
-    ledService.update();  
-    audioService.loop(); 
-    
-    // Solo actualizamos el Mic si está en modo streaming (ahorra CPU)
-    if (micService.isStreaming()) {
-        micService.update(); 
-    }
+void handleButtonSelect() {
+    bool currSelect = digitalRead(BTN_SELECT_PIN);
 
-    // --- 2. LÓGICA DE NAVEGACIÓN (Botones y Palanca) ---
-    if ((millis() - lastDebounceTime) > debounceDelay) {
-        
-        // SELECT: Confirmar
-        bool currSelect = digitalRead(BTN_SELECT_PIN);
-        if (currSelect == LOW && lastStateSelect == HIGH) {
+    if (isFallingEdge(currSelect, lastStateSelect)) {
+        if (millis() - lastSelectDebounceTime >= debounceDelay) {
             sendHardwareAction("BTN_SELECT");
-            ledService.setEstado(BTN_SELECT_FLASH); 
-            lastDebounceTime = millis();
+            ledService.triggerFlash(BTN_SELECT_FLASH);
+            lastSelectDebounceTime = millis();
         }
-        lastStateSelect = currSelect;
+    }
 
-        // TURNO: Giro Dado
-        bool currTurno = digitalRead(BTN_TURNO_PIN);
-        if (currTurno == LOW && lastStateTurno == HIGH) {
+    lastStateSelect = currSelect;
+}
+
+void handleButtonTurno() {
+    bool currTurno = digitalRead(BTN_TURNO_PIN);
+
+    if (isFallingEdge(currTurno, lastStateTurno)) {
+        if (millis() - lastTurnoDebounceTime >= debounceDelay) {
             sendHardwareAction("BTN_TURNO");
-            ledService.setEstado(DADO_TURNOS); // Feedback visual inmediato
-            lastDebounceTime = millis();
+            ledService.setEstado(DADO_TURNOS);
+            lastTurnoDebounceTime = millis();
         }
-        lastStateTurno = currTurno;
+    }
 
-        // CATEGORIA: Giro Categoría
-        bool currCat = digitalRead(BTN_CATEGORIA_PIN);
-        if (currCat == LOW && lastStateCat == HIGH) {
+    lastStateTurno = currTurno;
+}
+
+void handleButtonCategoria() {
+    bool currCat = digitalRead(BTN_CATEGORIA_PIN);
+
+    if (isFallingEdge(currCat, lastStateCat)) {
+        if (millis() - lastCatDebounceTime >= debounceDelay) {
             sendHardwareAction("BTN_CATEGORIA");
-            ledService.setEstado(DADO_CATEGORIA); // Feedback visual inmediato
-            lastDebounceTime = millis();
+            ledService.setEstado(DADO_CATEGORIA);
+            lastCatDebounceTime = millis();
         }
-        lastStateCat = currCat;
+    }
 
-        // MOVIMIENTO DE PALANCA
-        unsigned long currentMillis = millis();
+    lastStateCat = currCat;
+}
 
-        // --- LÓGICA PALANCA IZQUIERDA ---
-        bool currL = digitalRead(JOY_LEFT_PIN);
-        if (currL == LOW) { // Está activada la izquierda
-            if (lastStateLeft == HIGH || (currentMillis - lastMoveTime > (isFirstMove ? initialDelay : scrollSpeed))) {
-                sendHardwareAction("HW_MOVE", "L");
-                ledService.setEstado(MOVE_LEFT);
-                
-                lastMoveTime = currentMillis;
-                isFirstMove = (lastStateLeft == HIGH) ? true : false; 
-                if(lastStateLeft == HIGH) isFirstMove = true; // Fue el primer toque
-                else isFirstMove = false; // Ya entró en modo scroll
-            }
-        }
+void handleJoystick() {
+    unsigned long currentMillis = millis();
 
-        // --- LÓGICA PALANCA DERECHA ---
-        bool currR = digitalRead(JOY_RIGHT_PIN);
-        if (currR == LOW) { // Está activada la derecha
-            if (lastStateRight == HIGH || (currentMillis - lastMoveTime > (isFirstMove ? initialDelay : scrollSpeed))) {
-                sendHardwareAction("HW_MOVE", "R");
-                ledService.setEstado(MOVE_RIGHT);
-                
-                lastMoveTime = currentMillis;
-                if(lastStateRight == HIGH) isFirstMove = true;
-                else isFirstMove = false;
-            }
-        }
+    bool currL = digitalRead(JOY_LEFT_PIN);
+    bool currR = digitalRead(JOY_RIGHT_PIN);
 
-        // Resetear estados cuando se suelta la palanca
-        if (currL == HIGH && currR == HIGH) {
+    if (currL == HIGH && currR == HIGH) {
+        isFirstMove = true;
+    }
+
+    if (currL == LOW && currR == HIGH) {
+        if (lastStateLeft == HIGH) {
+            sendHardwareAction("HW_MOVE", "L");
+            ledService.triggerFlash(MOVE_LEFT);
+            lastMoveTime = currentMillis;
             isFirstMove = true;
+        } 
+        else if (currentMillis - lastMoveTime >= (isFirstMove ? initialDelay : scrollSpeed)) {
+            sendHardwareAction("HW_MOVE", "L");
+            ledService.triggerFlash(MOVE_LEFT);
+            lastMoveTime = currentMillis;
+            isFirstMove = false;
         }
-
-        lastStateLeft = currL;
-        lastStateRight = currR;
+    }
+    else if (currR == LOW && currL == HIGH) {
+        if (lastStateRight == HIGH) {
+            sendHardwareAction("HW_MOVE", "R");
+            ledService.triggerFlash(MOVE_RIGHT);
+            lastMoveTime = currentMillis;
+            isFirstMove = true;
+        } 
+        else if (currentMillis - lastMoveTime >= (isFirstMove ? initialDelay : scrollSpeed)) {
+            sendHardwareAction("HW_MOVE", "R");
+            ledService.triggerFlash(MOVE_RIGHT);
+            lastMoveTime = currentMillis;
+            isFirstMove = false;
+        }
     }
 
-    // --- 3. LÓGICA PUSH-TO-TALK (Prioridad Máxima) ---
-    bool p1Presionado = (digitalRead(BTN_P1_PIN) == LOW);
-    bool p2Presionado = (digitalRead(BTN_P2_PIN) == LOW);
+    lastStateLeft  = currL;
+    lastStateRight = currR;
+}
 
-    if (p1Presionado || p2Presionado) { 
-        if (!micService.isStreaming()) {
-            // El propio MicService.startStreaming() ya llama a audioService.stop()
+// =============================
+// MICRÓFONO TOGGLE
+// clic 1 = activar
+// clic 2 = desactivar y enviar
+// =============================
+void handleMicToggle() {
+    bool currP1 = digitalRead(BTN_P1_PIN);
+    bool currP2 = digitalRead(BTN_P2_PIN);
+
+    bool p1Clicked = isFallingEdge(currP1, lastStateP1);
+    bool p2Clicked = isFallingEdge(currP2, lastStateP2);
+
+    // --- JUGADOR 1 ---
+    if (p1Clicked && (millis() - lastP1DebounceTime >= debounceDelay)) {
+        lastP1DebounceTime = millis();
+
+        // Si no hay mic activo, P1 lo toma
+        if (!micService.isStreaming() && activeMicPlayer == 0) {
+            activeMicPlayer = 1;
             micService.startStreaming();
-            ledService.setEstado(BTN_PLAYER_FLASH); // Leds en blanco para indicar escucha
-            
-            String player = p1Presionado ? "P1" : "P2";
-            sendHardwareAction("BTN_TALK_START", player);
+            ledService.setEstado(BTN_PLAYER_FLASH);
         }
-    } 
-    else {
-        // Si se suelta el botón
-        if (micService.isStreaming()) {
+        // Si P1 ya tenía el mic activo, lo cierra
+        else if (micService.isStreaming() && activeMicPlayer == 1) {
             micService.stopStreaming();
-            sendHardwareAction("BTN_TALK_STOP");
-            // Nota: El LED volverá a su estado anterior o IDLE según el comando que mande el Back
+            activeMicPlayer = 0;
+            ledService.setEstado(VISTA_JUEGO);
         }
+        // Si el mic lo tiene otro jugador, ignoramos el clic
     }
+
+    // --- JUGADOR 2 ---
+    if (p2Clicked && (millis() - lastP2DebounceTime >= debounceDelay)) {
+        lastP2DebounceTime = millis();
+
+        // Si no hay mic activo, P2 lo toma
+        if (!micService.isStreaming() && activeMicPlayer == 0) {
+            activeMicPlayer = 2;
+            micService.startStreaming();
+            ledService.setEstado(BTN_PLAYER_FLASH);
+        }
+        // Si P2 ya tenía el mic activo, lo cierra
+        else if (micService.isStreaming() && activeMicPlayer == 2) {
+            micService.stopStreaming();
+            activeMicPlayer = 0;
+            ledService.setEstado(VISTA_JUEGO);
+        }
+        // Si el mic lo tiene otro jugador, ignoramos el clic
+    }
+
+    lastStateP1 = currP1;
+    lastStateP2 = currP2;
+}
+
+// =============================
+// SETUP
+// =============================
+void setup() {
+    setupHardware();
+
+    ledService.setup();
+    audioService.setup();
+    micService.setup();
+
+    setupNetwork();
+
+    Serial.println("{\"type\":\"SYSTEM\",\"event\":\"READY_MAIN\"}");
+}
+
+// =============================
+// LOOP
+// =============================
+void loop() {
+    updateNetwork();
+    ledService.update();
+    audioService.loop();
+
+    // Mientras el mic está activo:
+    // - seguimos capturando audio
+    // - solo permitimos clic de P1/P2 para cerrar
+    if (micService.isStreaming()) {
+        micService.update();
+        handleMicToggle();
+        return;
+    }
+
+    // Navegación normal
+    handleButtonSelect();
+    handleButtonTurno();
+    handleButtonCategoria();
+    handleJoystick();
+
+    // Micrófono en modo toggle
+    handleMicToggle();
 }

@@ -4,18 +4,19 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <vector>
+
 #include "HardwareMap.h"
 #include "AudioService.h"
 #include "LedService.h"
-#include "MicService.h" // Agregado para control de flujo
+#include "MicService.h"
 
-void setupNetwork();  
-void updateNetwork(); 
+void setupNetwork();
+void updateNetwork();
 
-// Envío de eventos (Botones, Joystick, etc.)
+// ESP32 -> Backend Python
 void sendHardwareAction(String action, String value = "");
 
-// Procesamiento de comandos que vienen de Python (Laptop)
+// Python -> ESP32
 void processLocalMessage(String jsonPayload);
 
 #endif
