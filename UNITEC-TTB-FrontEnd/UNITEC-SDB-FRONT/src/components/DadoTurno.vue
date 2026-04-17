@@ -156,18 +156,19 @@ onUnmounted(() => unsubscribe());
 </template>
 
 <style scoped>
-/* Tus estilos base se mantienen, añadimos feedback de hardware */
 .hw-tip {
-    font-size: 0.8rem;
-    color: #3e8ebf;
-    font-weight: bold;
-    margin-top: 5px;
-    animation: pulse 1.5s infinite;
+    font-size: 0.82rem;
+    color: #f1c40f;
+    font-weight: 900;
+    margin-top: 8px;
+    letter-spacing: 0.5px;
+    animation: pulse 1.4s infinite;
+    text-transform: uppercase;
 }
 
 @keyframes pulse {
     0% {
-        opacity: 0.4;
+        opacity: 0.35;
     }
 
     50% {
@@ -175,7 +176,7 @@ onUnmounted(() => unsubscribe());
     }
 
     100% {
-        opacity: 0.4;
+        opacity: 0.35;
     }
 }
 
@@ -183,108 +184,100 @@ onUnmounted(() => unsubscribe());
     display: flex;
     flex-direction: column;
     align-items: center;
-    width: 1000px;
+    width: 100%;
+    max-width: 1100px;
     gap: 30px;
-}
-
-
-.btn-retry {
-    background: #f1c40f;
-    color: #333;
-    padding: 15px 25px;
-    border-radius: 30px;
-    border: none;
-    font-weight: bold;
-}
-
-.btn-next {
-    background: #27ae60;
-    color: white;
-    padding: 20px 50px;
-    font-size: 1.4rem;
-    border-radius: 50px;
-    border: none;
-    cursor: pointer;
-    box-shadow: 0 8px 15px rgba(39, 174, 96, 0.3);
-}
-
-.duelo-container {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    width: 1000px;
-    gap: 30px;
+    margin: 0 auto;
 }
 
 .players-display {
     display: flex;
-    justify-content: space-around;
+    justify-content: space-between;
     align-items: center;
     width: 100%;
-    margin-left: 170px;
+    gap: 28px;
 }
 
+/* =========================
+   TARJETAS DE JUGADOR
+========================= */
 .player-card {
-    background: white;
-    padding: 5px;
-    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.06);
+    padding: 22px 18px;
+    border-radius: 24px;
     text-align: center;
-    width: 180px;
-    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-    border: 4px solid #fdf2f2;
-    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.05);
+    width: 220px;
+    transition: all 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    border: 3px solid rgba(255, 255, 255, 0.08);
+    box-shadow:
+        0 18px 30px rgba(0, 0, 0, 0.22),
+        0 0 14px rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(8px);
 }
 
 .player-card.active {
-    border-color: #3e8ebf;
-    transform: scale(1.1);
-    box-shadow: 0 15px 30px rgba(62, 142, 191, 0.2);
+    border-color: #f1c40f;
+    transform: scale(1.08);
+    box-shadow:
+        0 0 20px rgba(241, 196, 15, 0.22),
+        0 18px 30px rgba(0, 0, 0, 0.24);
 }
 
 .player-card.winner {
-    border-color: #42b883;
-    background: #f0fff4;
+    border-color: #2ecc71;
+    background: rgba(46, 204, 113, 0.12);
+    box-shadow:
+        0 0 18px rgba(46, 204, 113, 0.18),
+        0 18px 30px rgba(0, 0, 0, 0.22);
 }
 
 .nickname {
     font-weight: 900;
-    color: #733131;
+    color: #ffffff;
     font-size: 1.2rem;
-    margin-bottom: 15px;
+    margin-bottom: 14px;
     display: block;
+    text-transform: capitalize;
+    letter-spacing: 0.4px;
 }
 
 .result-box {
     font-size: 4rem;
-    color: #a64444;
+    color: #f5f6fa;
     font-weight: 900;
     line-height: 1;
+    text-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
 }
 
+.result-box.empty {
+    color: rgba(255, 255, 255, 0.22);
+}
+
+/* =========================
+   ZONA DEL DADO
+========================= */
 .dice-zone {
+    flex: 1;
     display: flex;
     flex-direction: column;
     align-items: center;
-    /* Centra horizontalmente todo el contenido (dado y botón) */
-    width: 100%;
+    justify-content: center;
+    gap: 18px;
 }
 
-/* DISEÑO DADO IGUAL AL CATEGORIA */
 .scene {
-    width: 100px;
-    height: 100px;
-    perspective: 1000px;
-    margin-bottom: 20px;
-    /* Eliminamos márgenes laterales automáticos si el padre ya usa Flexbox, 
-       pero podemos asegurar con: */
+    width: 120px;
+    height: 120px;
+    perspective: 1100px;
     display: flex;
     justify-content: center;
+    align-items: center;
+    margin-bottom: 8px;
 }
 
 .dice {
-    width: 100px;
-    /* Es mejor que tenga el mismo ancho que la escena */
-    height: 100px;
+    width: 110px;
+    height: 110px;
     position: relative;
     transform-style: preserve-3d;
     transition: transform 2s cubic-bezier(0.2, 0.8, 0.3, 1);
@@ -292,84 +285,143 @@ onUnmounted(() => unsubscribe());
 
 .face {
     position: absolute;
-    width: 100px;
-    height: 100px;
+    width: 110px;
+    height: 110px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 2.2rem;
+    font-size: 2.4rem;
     font-weight: 900;
-    border-radius: 15px;
-    border: 3px solid #fdf2f2;
-    box-shadow: inset 0 0 15px rgba(0, 0, 0, 0.2);
+    border-radius: 18px;
+    border: 3px solid rgba(255, 255, 255, 0.12);
+    box-shadow:
+        inset 0 0 20px rgba(0, 0, 0, 0.22),
+        0 10px 24px rgba(0, 0, 0, 0.18);
     color: white;
-    background: #2c3e50;
+    background: linear-gradient(135deg, #2c3e50, #1e272e);
 }
 
 .front {
-    transform: rotateY(0deg) translateZ(50px);
+    transform: rotateY(0deg) translateZ(55px);
 }
 
 .back {
-    transform: rotateY(180deg) translateZ(50px);
+    transform: rotateY(180deg) translateZ(55px);
 }
 
 .right {
-    transform: rotateY(90deg) translateZ(50px);
+    transform: rotateY(90deg) translateZ(55px);
 }
 
 .left {
-    transform: rotateY(-90deg) translateZ(50px);
+    transform: rotateY(-90deg) translateZ(55px);
 }
 
 .top {
-    transform: rotateX(90deg) translateZ(50px);
+    transform: rotateX(90deg) translateZ(55px);
 }
 
 .bottom {
-    transform: rotateX(-90deg) translateZ(50px);
+    transform: rotateX(-90deg) translateZ(55px);
+}
+
+/* =========================
+   CONTROLES
+========================= */
+.controls-overlay {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
 }
 
 .btn-roll,
 .btn-next,
 .btn-retry {
-    padding: 15px 35px;
+    padding: 15px 34px;
     border: none;
-    border-radius: 30px;
-    font-weight: bold;
+    border-radius: 999px;
+    font-weight: 900;
     cursor: pointer;
-    font-size: 1.1rem;
-    transition: all 0.3s;
+    font-size: 1rem;
+    letter-spacing: 0.4px;
+    transition: all 0.25s ease;
 }
 
 .btn-roll {
-    background: #3e8ebf;
+    background: linear-gradient(135deg, #3498db, #2980b9);
     color: white;
+    box-shadow:
+        0 10px 20px rgba(52, 152, 219, 0.24),
+        0 0 14px rgba(52, 152, 219, 0.14);
+}
+
+.btn-roll:hover {
+    transform: translateY(-2px) scale(1.02);
 }
 
 .btn-next {
-    background: #a64444;
+    background: linear-gradient(135deg, #2ecc71, #27ae60);
     color: white;
-    margin-top: 1px;
-    box-shadow: 0 5px 15px rgba(166, 68, 68, 0.3);
+    box-shadow:
+        0 10px 20px rgba(46, 204, 113, 0.24),
+        0 0 14px rgba(46, 204, 113, 0.14);
+}
+
+.btn-next:hover {
+    transform: translateY(-2px) scale(1.02);
 }
 
 .btn-retry {
-    background: #f1c40f;
-    color: #333;
-    margin-left: -40px;
+    background: linear-gradient(135deg, #f1c40f, #f39c12);
+    color: #111;
+    box-shadow:
+        0 10px 20px rgba(241, 196, 15, 0.24),
+        0 0 14px rgba(241, 196, 15, 0.14);
 }
 
-.winner-text {
-    font-size: 1.5rem;
-    color: #a64444;
-    font-weight: bold;
+.btn-retry:hover {
+    transform: translateY(-2px) scale(1.02);
+}
+
+/* =========================
+   EMPATE / GANADOR
+========================= */
+.empate-notice {
+    text-align: center;
+    padding: 14px 20px;
+    border-radius: 18px;
+    background: rgba(241, 196, 15, 0.12);
+    border: 2px solid rgba(241, 196, 15, 0.35);
+    color: #fef9c3;
+    box-shadow: 0 0 16px rgba(241, 196, 15, 0.12);
+}
+
+.empate-notice p {
+    margin: 0 0 10px;
+    font-size: 1.1rem;
+    font-weight: 900;
+    letter-spacing: 1px;
 }
 
 .action-area {
-    margin-left: 200px;
     text-align: center;
-    animation: fadeIn 0.5s ease;
+    animation: fadeIn 0.4s ease;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(46, 204, 113, 0.22);
+    border-radius: 24px;
+    padding: 24px 28px;
+    box-shadow:
+        0 18px 32px rgba(0, 0, 0, 0.2),
+        0 0 18px rgba(46, 204, 113, 0.08);
+}
+
+.winner-announcement {
+    margin: 0 0 18px;
+    font-size: 1.4rem;
+    color: #ffffff;
+    font-weight: 900;
+    text-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
 }
 
 .shaking {
@@ -396,12 +448,61 @@ onUnmounted(() => unsubscribe());
 @keyframes fadeIn {
     from {
         opacity: 0;
-        transform: translateY(10px);
+        transform: translateY(12px);
     }
 
     to {
         opacity: 1;
         transform: translateY(0);
+    }
+}
+
+/* =========================
+   RESPONSIVE
+========================= */
+@media (max-width: 980px) {
+    .players-display {
+        flex-direction: column;
+        gap: 24px;
+    }
+
+    .player-card {
+        width: min(280px, 90vw);
+    }
+
+    .scene {
+        width: 110px;
+        height: 110px;
+    }
+
+    .dice,
+    .face {
+        width: 100px;
+        height: 100px;
+    }
+
+    .front {
+        transform: rotateY(0deg) translateZ(50px);
+    }
+
+    .back {
+        transform: rotateY(180deg) translateZ(50px);
+    }
+
+    .right {
+        transform: rotateY(90deg) translateZ(50px);
+    }
+
+    .left {
+        transform: rotateY(-90deg) translateZ(50px);
+    }
+
+    .top {
+        transform: rotateX(90deg) translateZ(50px);
+    }
+
+    .bottom {
+        transform: rotateX(-90deg) translateZ(50px);
     }
 }
 </style>

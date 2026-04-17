@@ -12,8 +12,8 @@ import RankingView from '@/views/RankingView.vue';
 
 const gameStore = useGameStore();
 
-onMounted(() => {
-  connectWebSocket();
+onMounted(async () => {
+  await connectWebSocket();
 });
 
 // Mapeo dinámico de vistas
@@ -28,8 +28,13 @@ const views: Record<string, any> = {
 
 const vistaActiva = computed(() => views[gameStore.vistaActual] || ReglasView);
 
-// Vigilamos cambios de vista para avisar al backend (y que el ESP32 toque audios)
+// Vigilamos cambios de vista para avisar al backend
 watch(() => gameStore.vistaActual, (nuevaVista) => {
+  // Estas fases se manejan dentro de ConfiguracionView por subpasos
+  if (nuevaVista === 'CONFIGURACION' || nuevaVista === 'CONFIGURACION_CARTAS') {
+    return;
+  }
+
   sendEvent('UI_CAMBIO_FASE', { fase: nuevaVista });
 });
 </script>
@@ -43,7 +48,7 @@ watch(() => gameStore.vistaActual, (nuevaVista) => {
       </div>
       <div class="user-profile">
         <span>{{ gameStore.jugador1.nickname || 'Jugador 1' }} vs {{ gameStore.jugador2.nickname || 'Jugador 2'
-        }}</span>
+          }}</span>
       </div>
     </header>
 
@@ -63,238 +68,122 @@ watch(() => gameStore.vistaActual, (nuevaVista) => {
 </template>
 
 <style scoped>
-/* Ajuste en el header para que el título se vea bien centrado */
-.header-left {
-  display: flex;
-  align-items: center;
-  flex: 1;
-  /* Ocupa el espacio para empujar el perfil a la derecha */
-}
-
-.main-title {
-  flex-grow: 1;
-  /* Toma el espacio disponible */
-  text-align: center;
-  margin-left: 50px !important;
-  color: rgb(79, 37, 37);
-  font-family: 'Georgia', serif;
-  font-style: italic;
-  font-size: 4rem;
-}
-
-/* ESTRUCTURA GENERAL */
+/* =========================
+   ESTRUCTURA GENERAL
+========================= */
 .layout {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  background-color: #f2d1d1;
-  /* Fondo rosado Figma */
-  color: #333;
+  width: 100vw;
+  margin: 0;
   overflow: hidden;
+  background:
+    radial-gradient(circle at top, #1e272e 0%, #0f1418 45%, #050505 100%);
+  color: #ecf0f1;
 }
 
-/* HEADER */
+/* =========================
+   HEADER
+========================= */
 .main-header {
-  background-color: #a64444;
-  /* Rojo Borgoña */
-  height: 80px;
+  height: 88px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0 30px;
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
-  z-index: 10;
+  padding: 0 28px;
+  background: rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  z-index: 20;
 }
 
 .header-left {
   display: flex;
   align-items: center;
-  gap: 20px;
-}
-
-.logo-wrapper {
-  background: white;
-  padding: 5px;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
+  flex: 1;
+  gap: 18px;
 }
 
 .header-logo {
-  width: 45px;
-  height: 45px;
+  width: 50px;
+  height: 50px;
+  object-fit: contain;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 6px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+}
+
+.main-title {
+  flex-grow: 1;
+  text-align: center;
+  margin-left: 40px !important;
+  margin-bottom: 0;
+  color: #f5f6fa;
+  font-size: 2.7rem;
+  font-weight: 900;
+  letter-spacing: 1px;
+  text-shadow: 0 3px 14px rgba(0, 0, 0, 0.35);
 }
 
 .user-profile {
   display: flex;
   align-items: center;
-  gap: 15px;
-  background: rgba(255, 255, 255, 0.2);
-  padding: 5px 20px;
-  border-radius: 30px;
-  color: white;
+  gap: 12px;
+  background: rgba(241, 196, 15, 0.12);
+  border: 2px solid rgba(241, 196, 15, 0.55);
+  color: #fef9c3;
+  padding: 10px 18px;
+  border-radius: 999px;
+  box-shadow: 0 0 18px rgba(241, 196, 15, 0.15);
+  font-weight: 800;
+  font-size: 0.95rem;
 }
 
-.avatar-circle {
-  width: 35px;
-  height: 35px;
-  background: #2a1a1a;
-  border-radius: 50%;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-}
-
-/* MIDDLE CONTAINER */
+/* =========================
+   MIDDLE
+========================= */
 .middle-container {
   display: flex;
   flex: 1;
+  width: 100vw;
   overflow: hidden;
 }
 
-/* SIDEBAR */
-.side-nav {
-  width: 80px;
-  background-color: #d99a9a;
-  /* Rosa fuerte Figma */
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding-top: 40px;
-  gap: 25px;
-}
-
-.nav-icon-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-}
-
-.icon-square {
-  width: 50px;
-  height: 50px;
-  background-color: #733131;
-  /* Rojo oscuro Figma */
-  border-radius: 12px;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  color: white;
-  box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.2);
-  transition: transform 0.2s;
-}
-
-.icon-square:hover {
-  transform: scale(1.1);
-}
-
-.ws-status {
-  margin-top: auto;
-  margin-bottom: 20px;
-  font-size: 1.5rem;
-  color: #733131;
-}
-
-.ws-status.online {
-  color: #42b883;
-}
-
-/* MAIN CONTENT */
 .main-content {
   flex: 1;
-  padding: 40px;
+  padding: 28px;
   overflow-y: auto;
   display: flex;
-  justify-content: center;
-}
-
-.main-footer {
-  background-color: #733131;
-  /* Rojo oscuro/borgoña del diseño */
-  color: #d99a9a;
-  /* Texto en tono rosado suave */
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 20px 50px;
-  font-size: 0.8rem;
-  line-height: 1.4;
-  border-top: 2px solid rgba(0, 0, 0, 0.1);
-}
-
-.footer-column {
-  flex: 1;
-  display: flex;
   flex-direction: column;
-  justify-content: center;
-}
-
-.footer-column.left {
-  text-align: left;
-}
-
-.footer-column.right {
-  text-align: right;
-}
-
-/* Contenedor de iconos centrales */
-.footer-column.center {
   align-items: center;
-  flex: 0.5;
-  /* Ocupa menos espacio que los textos laterales */
+  background:
+    radial-gradient(circle at center, rgba(255, 255, 255, 0.02) 0%, rgba(0, 0, 0, 0) 60%);
 }
 
-.social-icons {
-  display: flex;
-  gap: 20px;
-}
-
-.social-circle {
-  width: 45px;
-  height: 45px;
-  border-radius: 50%;
+/* =========================
+   FOOTER
+========================= */
+.main-footer {
+  min-height: 54px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #bdc3c7;
   display: flex;
   justify-content: center;
   align-items: center;
-  color: white;
-  font-weight: bold;
-  font-size: 1.2rem;
-  text-decoration: none;
-  transition: transform 0.2s;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+  padding: 10px 24px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.18);
 }
 
-.social-circle:hover {
-  transform: scale(1.1);
-}
-
-/* Colores de marca para los iconos */
-.fb {
-  background-color: #1877F2;
-}
-
-.ig {
-  background: linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888);
-}
-
-.tk {
-  background-color: #000000;
-}
-
-@media (max-width: 768px) {
-  .main-footer {
-    flex-direction: column;
-    gap: 20px;
-    text-align: center;
-  }
-
-  .footer-column.left,
-  .footer-column.right {
-    text-align: center;
-  }
-}
-
-/* ANIMACIONES */
+/* =========================
+   ANIMACIONES
+========================= */
 .page-fade-enter-active,
 .page-fade-leave-active {
   transition: all 0.3s ease;
@@ -310,45 +199,45 @@ watch(() => gameStore.vistaActual, (nuevaVista) => {
   transform: translateY(-10px);
 }
 
-/* Asegura que el cuerpo ocupe el 100% */
-.middle-container {
-  display: flex;
-  flex: 1;
-  width: 100vw;
-  /* Ocupa todo el ancho de la ventana */
-  overflow: hidden;
+/* =========================
+   RESPONSIVE
+========================= */
+@media (max-width: 980px) {
+  .main-title {
+    font-size: 2rem;
+    margin-left: 16px !important;
+    text-align: left;
+  }
+
+  .user-profile {
+    font-size: 0.82rem;
+    padding: 8px 14px;
+  }
+
+  .main-content {
+    padding: 18px;
+  }
 }
 
-.main-content {
-  flex: 1;
-  /* Esto obliga a que el contenido crezca y use todo el espacio sobrante */
-  padding: 40px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  /* Centra el contenido internamente */
-  background-color: #f2d1d1;
-  /* Asegura que el fondo cubra todo */
-}
+@media (max-width: 768px) {
+  .main-header {
+    padding: 0 16px;
+    gap: 12px;
+  }
 
-/* Ajusta el contenedor de las vistas para que no sea tan pequeño */
-.reglas-container,
-.registro-container,
-.game-container {
-  width: 100%;
-  max-width: 1200px;
-  /* Aumentamos el límite para pantallas grandes */
-  margin: 0 auto;
-}
+  .main-title {
+    font-size: 1.6rem;
+  }
 
-.layout {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  width: 100vw;
-  /* Forzamos ancho de ventana completa */
-  background-color: #f2d1d1;
-  margin: 0;
+  .header-logo {
+    width: 42px;
+    height: 42px;
+  }
+
+  .user-profile {
+    max-width: 40%;
+    text-align: center;
+    line-height: 1.2;
+  }
 }
 </style>

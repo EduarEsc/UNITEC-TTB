@@ -6,20 +6,26 @@ interface Props {
     puntos: number;
     vidas: number;
     esSuTurno: boolean;
-    posicion: 1 | 2; // Para saber si es el jugador de la izquierda o derecha
+    posicion: 1 | 2;
+    estadoVoz?: 'none' | 'listening' | 'processing';
 }
 
-const props = defineProps<Props>();
+const props = withDefaults(defineProps<Props>(), {
+    estadoVoz: 'none'
+});
 
-// Determinamos si el jugador ha perdido (para efectos visuales de derrota)
 const haPerdido = computed(() => props.vidas <= 0);
+const estaEscuchando = computed(() => props.estadoVoz === 'listening');
+const estaProcesando = computed(() => props.estadoVoz === 'processing');
 </script>
 
 <template>
     <div class="player-box" :class="{
         'is-turn': props.esSuTurno,
         'is-inactive': !props.esSuTurno && !haPerdido,
-        'is-loser': haPerdido
+        'is-loser': haPerdido,
+        'is-listening': estaEscuchando,
+        'is-processing': estaProcesando
     }">
         <Transition name="fade">
             <div class="turn-tag" v-if="props.esSuTurno">TU TURNO</div>
@@ -34,12 +40,16 @@ const haPerdido = computed(() => props.vidas <= 0);
                     Puntos: {{ props.puntos }}
                 </p>
 
+                <p v-if="estaEscuchando" class="voice-status">🎙️ Respondiendo...</p>
+                <p v-else-if="estaProcesando" class="voice-status">📡 Validando respuesta...</p>
+
                 <div class="hearts">
-                    <TransitionGroup name="list">
+                    <TransitionGroup name="list" tag="div" class="hearts-list">
                         <span v-for="n in props.vidas" :key="`heart-${props.posicion}-${n}`" class="heart">
                             ❤️
                         </span>
                     </TransitionGroup>
+
                     <span v-if="props.vidas === 0" class="no-vidas">💀 ELIMINADO</span>
                 </div>
             </div>
@@ -124,22 +134,28 @@ const haPerdido = computed(() => props.vidas <= 0);
 }
 
 .hearts {
+    margin-top: 8px;
     display: flex;
-    gap: 5px;
-    height: 25px;
-    /* Altura fija para evitar saltos en la UI */
+    flex-direction: column;
+    gap: 6px;
+}
+
+.hearts-list {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    align-items: center;
 }
 
 .heart {
-    font-size: 1.3rem;
-    filter: drop-shadow(0 0 5px rgba(231, 76, 60, 0.5));
-    display: inline-block;
+    font-size: 1.2rem;
+    filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.25));
 }
 
 .no-vidas {
-    color: #e74c3c;
-    font-size: 0.8rem;
     font-weight: 900;
+    color: #ff6b6b;
+    letter-spacing: 0.5px;
 }
 
 /* --- ANIMACIONES VUE --- */

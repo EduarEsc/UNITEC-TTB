@@ -3,51 +3,106 @@ import { computed } from 'vue';
 
 interface Props {
     micOn: boolean;
+    micProcessing?: boolean;
     nombreJugadorActivo: string;
     ultimaPalabraEscuchada: string;
+    ultimaPalabraValidada?: string;
     esPalabraValida: boolean | null;
+    ultimoMotivoError?: string;
 }
 
-const props = defineProps<Props>();
+const props = withDefaults(defineProps<Props>(), {
+    micProcessing: false,
+    ultimaPalabraValidada: '',
+    ultimoMotivoError: ''
+});
 
-// Determinamos el mensaje a mostrar según el estado
-const mensajeMic = computed(() => {
-    if (props.micOn) return `ESCUCHANDO A ${props.nombreJugadorActivo.toUpperCase()}...`;
-    return `ESPERANDO TURNO DE ${props.nombreJugadorActivo}...`;
+const estadoOverlay = computed(() => {
+    if (props.micOn) return 'listening';
+    if (props.micProcessing) return 'processing';
+    if (props.esPalabraValida === true) return 'correct';
+    if (props.esPalabraValida === false) return 'incorrect';
+    return 'waiting';
+});
+
+const mensajePrincipal = computed(() => {
+    switch (estadoOverlay.value) {
+        case 'listening':
+            return `CAPTURANDO RESPUESTA DE ${props.nombreJugadorActivo.toUpperCase()}...`;
+        case 'processing':
+            return `VALIDANDO RESPUESTA DE ${props.nombreJugadorActivo.toUpperCase()}...`;
+        case 'correct':
+            return `¡RESPUESTA CORRECTA DE ${props.nombreJugadorActivo.toUpperCase()}!`;
+        case 'incorrect':
+            return `RESPUESTA INVÁLIDA DE ${props.nombreJugadorActivo.toUpperCase()}`;
+        default:
+            return `ESPERANDO TURNO DE ${props.nombreJugadorActivo.toUpperCase()}...`;
+    }
+});
+
+const palabraMostrada = computed(() => {
+    if (props.esPalabraValida === true) {
+        return props.ultimaPalabraValidada || props.ultimaPalabraEscuchada;
+    }
+    return props.ultimaPalabraEscuchada;
 });
 </script>
 
 <template>
     <div class="interaction-zone">
         <Transition name="fade-down" mode="out-in">
-            <div v-if="props.micOn" key="listening" class="active-feedback">
-                <div class="mic-status active">
+            <div v-if="estadoOverlay === 'listening'" key="listening" class="active-feedback">
+                <div class="mic-status active listening">
                     <div class="pulse-ring"></div>
                     <div class="mic-icon">🎙️</div>
                     <p class="listening-text">
-                        <strong>{{ props.nombreJugadorActivo }}</strong> está hablando
+                        <strong>{{ props.nombreJugadorActivo }}</strong> está respondiendo
+                    </p>
+                    <p class="status-msg">{{ mensajePrincipal }}</p>
+                    <p class="hint-msg">Presiona de nuevo el botón físico para enviar la respuesta.</p>
+                </div>
+            </div>
+
+            <div v-else-if="estadoOverlay === 'processing'" key="processing" class="active-feedback">
+                <div class="mic-status processing">
+                    <div class="mic-icon">📡</div>
+                    <p class="listening-text">Respuesta capturada</p>
+                    <p class="status-msg">{{ mensajePrincipal }}</p>
+                    <p class="hint-msg">Analizando la palabra pronunciada...</p>
+                </div>
+            </div>
+
+            <div v-else-if="estadoOverlay === 'correct'" key="correct" class="active-feedback">
+                <div class="mic-status result success">
+                    <div class="mic-icon">✅</div>
+                    <p class="status-msg">{{ mensajePrincipal }}</p>
+
+                    <div v-if="palabraMostrada" class="word-preview">
+                        <span class="valid-text">"{{ palabraMostrada }}"</span>
+                    </div>
+
+                    <p class="hint-msg">Preparando siguiente ronda...</p>
+                </div>
+            </div>
+
+            <div v-else-if="estadoOverlay === 'incorrect'" key="incorrect" class="active-feedback">
+                <div class="mic-status result error">
+                    <div class="mic-icon">❌</div>
+                    <p class="status-msg">{{ mensajePrincipal }}</p>
+
+                    <div v-if="palabraMostrada" class="word-preview">
+                        <span class="invalid-text">"{{ palabraMostrada }}"</span>
+                    </div>
+
+                    <p v-if="props.ultimoMotivoError" class="hint-msg">
+                        {{ props.ultimoMotivoError }}
                     </p>
                 </div>
-
-                <Transition name="pop-in">
-                    <div v-if="props.ultimaPalabraEscuchada" class="word-preview">
-                        <span :class="{
-                            'valid-text': props.esPalabraValida,
-                            'invalid-text': !props.esPalabraValida && props.ultimaPalabraEscuchada
-                        }">
-                            "{{ props.ultimaPalabraEscuchada }}"
-                        </span>
-
-                        <p v-if="props.esPalabraValida" class="hint-msg">
-                            ¡PRESIONA EL BOTÓN FÍSICO! 🔘
-                        </p>
-                    </div>
-                </Transition>
             </div>
 
             <div v-else key="waiting" class="mic-status inactive">
                 <div class="mic-icon muted">🔇</div>
-                <p class="status-msg">{{ mensajeMic }}</p>
+                <p class="status-msg">{{ mensajePrincipal }}</p>
             </div>
         </Transition>
     </div>

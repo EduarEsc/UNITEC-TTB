@@ -67,7 +67,7 @@ bool AudioService::playFromSD(const String& audioId) {
 
     if (audio.isRunning()) {
         audio.stopSong();
-        delay(60);
+        delay(120);
     }
 
     bool ok = audio.connecttoFS(SD, path.c_str());
@@ -101,10 +101,16 @@ bool AudioService::playFromWiFi(const String& audioId) {
 
     if (audio.isRunning()) {
         audio.stopSong();
-        delay(60);
+        delay(120);
     }
 
     bool ok = audio.connecttohost(url.c_str());
+
+    if (!ok) {
+        Serial.printf("{\"type\":\"WARN\",\"event\":\"AUDIO_WIFI_RETRY\",\"url\":\"%s\"}\n", url.c_str());
+        delay(250);
+        ok = audio.connecttohost(url.c_str());
+    }
 
     if (ok) {
         Serial.printf("{\"type\":\"SYSTEM\",\"event\":\"AUDIO_PLAY_WIFI\",\"url\":\"%s\"}\n", url.c_str());
@@ -173,7 +179,7 @@ void AudioService::playSequence(const std::vector<String>& ids) {
 void AudioService::stop() {
     if (audio.isRunning()) {
         audio.stopSong();
-        delay(60);
+        delay(120);
     }
 
     isSequencePlaying = false;

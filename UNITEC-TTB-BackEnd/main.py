@@ -1,29 +1,28 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from speech_recognition import Recognizer
 import asyncio
 import json
 import serial
 import threading
 import os
-from typing import List, Dict
+from typing import List, Dict, Optional
 import time
 import audioop
 from datetime import datetime
 from rapidfuzz import process
-import speech_recognition as sr
+import io
+import wave
 
 # Importaciones de lógica local
 from app.utils import cargar_mazo_por_categoria
 from app.database import init_db
 from app.models import obtener_top_10, registrar_o_recuperar_jugador
-from app.game_logic import engine
 from app.timer_service import TimerService
 from app.hardware_constants import HW_ACTIONS
+from app.speech_recognition import SpeechRecognizer
 
 app = FastAPI()
-recognizer = Recognizer()
 
 # =============================
 # MEDIA / AUDIOS
@@ -43,8 +42,10 @@ app.add_middleware(
 # =============================
 # CONFIGURACIÓN SERIAL
 # =============================
-PUERTO_SERIAL = "COM3"
-BAUDRATE_SERIAL = 115200
+PUERTO_SERIAL = "COM9"
+BAUDRATE_SERIAL = 921600
+
+ROUND_SECONDS = 10.0
 
 try:
     ser = serial.Serial(
@@ -72,17 +73,26 @@ except Exception as e:
 class ConnectionManager:
     def __init__(self):
         self.active_connections: Dict[str, List[WebSocket]] = {"VUE": []}
-        self.audio_buffer = bytearray()
+
         self.timer_service = TimerService(self.trigger_explosion)
+        self.speech_recognizer = SpeechRecognizer()
+
         self.is_mic_streaming = False
+        self.current_mic_player: int = 0
+        self.pending_upload_player: int = 0
         self.current_card = {}
         self.voice_task_running = False
+
         self.last_mic_start_time = 0.0
         self.last_mic_stop_time = 0.0
 
-        # Filtro de audios duplicados
         self.last_audio_command = ""
         self.last_audio_time = 0.0
+
+        self.round_total_seconds = ROUND_SECONDS
+        self.current_player: int = 1
+        self.round_total_ms: int = int(ROUND_SECONDS * 1000)
+        self.round_remaining_ms: int = int(ROUND_SECONDS * 1000)
 
         try:
             dict_path = os.path.join(os.path.dirname(__file__), "app", "diccionario.json")
@@ -153,7 +163,6 @@ class ConnectionManager:
             if message.get("type") == "CMD_AUDIO":
                 current_file = message.get("file", "")
                 now = time.time()
-
                 duplicate_window = 0.8 if current_file == "5_0_0_tic_tac" else 1.5
 
                 if current_file == self.last_audio_command and (now - self.last_audio_time) < duplicate_window:
@@ -174,11 +183,93 @@ class ConnectionManager:
     async def send_to_esp32(self, message: dict):
         await self.send_to_esp(message)
 
+    # =============================
+    # TIMER SYNC HACIA FRONT
+    # =============================
+    async def emit_timer_sync(self, state: str, reason: str = ""):
+        remaining_ms = int(self.timer_service.get_remaining_time() * 1000)
+        total_ms = int(self.round_total_seconds * 1000)
+
+        await self.send_to_vue({
+            "type": "TIMER_SYNC",
+            "state": state,
+            "reason": reason,
+            "totalMs": total_ms,
+            "remainingMs": remaining_ms
+        })
+
+    async def start_round_timer(self, seconds: float = ROUND_SECONDS, reason: str = "manual"):
+        self.round_total_seconds = float(seconds)
+        self.round_total_ms = int(self.round_total_seconds * 1000)
+        self.round_remaining_ms = self.round_total_ms
+
+        await self.timer_service.start(self.round_total_seconds)
+        await self.emit_timer_sync("started", reason)
+
+        print(f"⏱️ Timer reiniciado para jugador {self.current_player} por {self.round_total_seconds}s")
+
+    async def pause_round_timer(self, reason: str = "pause"):
+        self.timer_service.pause()
+        await self.emit_timer_sync("paused", reason)
+
+    async def resume_round_timer(self, reason: str = "resume"):
+        if self.timer_service.get_remaining_time() <= 0:
+            print("⚠️ No se reanuda timer porque ya está en 0.")
+            await self.emit_timer_sync("stopped", "timer_already_zero")
+            return
+
+        self.timer_service.resume()
+        await self.emit_timer_sync("resumed", reason)
+
+    async def stop_round_timer(self, reason: str = "stop"):
+        self.timer_service.stop()
+        await self.emit_timer_sync("stopped", reason)
+
     async def trigger_explosion(self):
+        await self.stop_round_timer("timeout")
+        print("💥 ¡TIEMPO AGOTADO!")
         await self.send_to_esp32({"type": "BOOM"})
         await self.send_to_vue({"type": "GAME_OVER_TIMEOUT"})
 
-    async def handle_voice_validation(self):
+    # =============================
+    # DEBUG / UTILIDADES AUDIO
+    # =============================
+    def save_debug_wav_bytes(self, wav_bytes: bytes, prefix: str = "test_audio") -> Optional[str]:
+        try:
+            debug_dir = os.path.join(os.path.dirname(__file__), "debug_audio")
+            os.makedirs(debug_dir, exist_ok=True)
+
+            filename = f"{prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
+            wav_path = os.path.join(debug_dir, filename)
+
+            with open(wav_path, "wb") as f:
+                f.write(wav_bytes)
+
+            return wav_path
+        except Exception as e:
+            print(f"❌ Error guardando WAV debug: {e}")
+            return None
+
+    def inspect_wav_bytes(self, wav_bytes: bytes):
+        with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
+            channels = wf.getnchannels()
+            sample_width = wf.getsampwidth()
+            sample_rate = wf.getframerate()
+            nframes = wf.getnframes()
+            pcm_bytes = wf.readframes(nframes)
+
+        return {
+            "channels": channels,
+            "sample_width": sample_width,
+            "sample_rate": sample_rate,
+            "nframes": nframes,
+            "pcm_bytes": pcm_bytes
+        }
+
+    # =============================
+    # VALIDACIÓN DE VOZ DESDE FRONT
+    # =============================
+    async def handle_voice_validation_from_wav(self, player: int, wav_bytes: bytes):
         if self.voice_task_running:
             print("⚠️ Validación de voz ya en curso, ignorando duplicado.")
             return
@@ -186,64 +277,87 @@ class ConnectionManager:
         self.voice_task_running = True
 
         try:
-            audio_len = len(self.audio_buffer)
-            print(f"🎤 Procesando {audio_len} bytes de audio...")
+            await self.send_to_vue({
+                "type": "MIC_PROCESSING",
+                "player": player
+            })
 
-            if audio_len == 0:
+            # Mientras se valida, el tiempo sigue congelado.
+            # No se reanuda aquí.
+
+            if not wav_bytes:
                 print("❌ No llegó audio al backend.")
                 await self.send_to_esp32({"type": "CMD_LED", "state": 11})
-                await self.send_to_vue({"type": "WORD_INCORRECT", "reason": "No llegó audio al backend"})
-                self.timer_service.resume()
+                await self.send_to_vue({
+                    "type": "WORD_INCORRECT",
+                    "player": player,
+                    "reason": "No llegó audio al backend"
+                })
+                await self.resume_round_timer("voice_empty")
                 return
 
-            # Alinear a 16-bit PCM
-            if audio_len % 2 != 0:
-                self.audio_buffer = self.audio_buffer[:-1]
-                audio_len = len(self.audio_buffer)
+            info = self.inspect_wav_bytes(wav_bytes)
+            pcm_bytes = info["pcm_bytes"]
+            audio_len = len(pcm_bytes)
 
-            # Métricas de debug
+            print(f"🎤 Procesando audio jugador {player}: {audio_len} bytes PCM")
+
+            if audio_len == 0:
+                print("❌ WAV sin datos PCM.")
+                await self.send_to_esp32({"type": "CMD_LED", "state": 11})
+                await self.send_to_vue({
+                    "type": "WORD_INCORRECT",
+                    "player": player,
+                    "reason": "El audio llegó vacío"
+                })
+                await self.resume_round_timer("voice_empty_pcm")
+                return
+
             try:
-                rms = audioop.rms(bytes(self.audio_buffer), 2)
-                peak = audioop.max(bytes(self.audio_buffer), 2)
-                duration_sec = audio_len / 32000.0  # 16kHz * 2 bytes * mono
+                if info["sample_width"] == 2:
+                    rms = audioop.rms(pcm_bytes, 2)
+                    peak = audioop.max(pcm_bytes, 2)
+                else:
+                    rms = 0
+                    peak = 0
 
-                print(f"📊 DEBUG AUDIO -> bytes={audio_len}, dur={duration_sec:.2f}s, rms={rms}, peak={peak}")
+                duration_sec = 0.0
+                if info["sample_rate"] > 0 and info["sample_width"] > 0 and info["channels"] > 0:
+                    duration_sec = audio_len / (info["sample_rate"] * info["sample_width"] * info["channels"])
 
-                if peak < 100:
-                    print("⚠️ Audio casi muerto: señal muy baja.")
-                elif peak > 30000:
-                    print("⚠️ Audio posiblemente saturado.")
+                print(
+                    f"📊 DEBUG AUDIO -> bytes={audio_len}, dur={duration_sec:.2f}s, "
+                    f"rate={info['sample_rate']}, channels={info['channels']}, width={info['sample_width']}, "
+                    f"rms={rms}, peak={peak}"
+                )
             except Exception as e:
                 print(f"⚠️ No se pudieron calcular métricas de audio: {e}")
 
-            if audio_len < 4000:
-                print("⚠️ Audio demasiado corto para reconocer.")
+            wav_path = self.save_debug_wav_bytes(wav_bytes, prefix=f"player_{player}")
+            if wav_path:
+                print(f"💾 WAV guardado en: {wav_path}")
+
+            palabra_escuchada = self.speech_recognizer.recognize_wav_bytes(
+                wav_bytes=wav_bytes,
+                save_debug_wav=False
+            )
+
+            if not palabra_escuchada:
+                print("❌ No se pudo transcribir la palabra.")
                 await self.send_to_esp32({"type": "CMD_LED", "state": 11})
-                await self.send_to_vue({"type": "WORD_INCORRECT", "reason": "Audio demasiado corto"})
-                self.timer_service.resume()
+                await self.send_to_esp32({
+                    "type": "CMD_SEQUENCE",
+                    "files": ["5_2_0_incorrect", "5_2_1_otra_oportunidad"]
+                })
+                await self.send_to_vue({
+                    "type": "WORD_INCORRECT",
+                    "player": player,
+                    "reason": "No se entendió la palabra"
+                })
+                await self.resume_round_timer("voice_not_understood")
                 return
 
-            audio_data = sr.AudioData(bytes(self.audio_buffer), 16000, 2)
-
-            # Guardar WAV siempre en carpeta fija
-            try:
-                debug_dir = os.path.join(os.path.dirname(__file__), "debug_audio")
-                os.makedirs(debug_dir, exist_ok=True)
-
-                filename = f"test_audio_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
-                wav_path = os.path.join(debug_dir, filename)
-
-                with open(wav_path, "wb") as f:
-                    f.write(audio_data.get_wav_data())
-
-                print(f"💾 WAV guardado en: {wav_path}")
-            except Exception as e:
-                print(f"❌ Error guardando WAV: {e}")
-
-            palabra_raw = recognizer.recognize_google(audio_data, language="es-MX")
-            print(f"📡 Google escuchó: {palabra_raw}")
-
-            palabra_escuchada = palabra_raw.lower().strip()
+            print(f"📡 Google escuchó: {palabra_escuchada}")
 
             categoria = self.current_card.get("categoria")
             silaba = self.current_card.get("silaba", "").lower()
@@ -251,7 +365,12 @@ class ConnectionManager:
 
             if not categoria or not silaba or not dificultad:
                 print("❌ Error: No hay datos de carta cargados.")
-                self.timer_service.resume()
+                await self.send_to_vue({
+                    "type": "WORD_INCORRECT",
+                    "player": player,
+                    "reason": "No hay datos de carta cargados"
+                })
+                await self.resume_round_timer("missing_card")
                 return
 
             try:
@@ -265,8 +384,12 @@ class ConnectionManager:
                 motivo = f"No hay palabras válidas para {categoria}/{dificultad}/{silaba.upper()}"
                 print(f"❌ {motivo}")
                 await self.send_to_esp32({"type": "CMD_LED", "state": 11})
-                await self.send_to_vue({"type": "WORD_INCORRECT", "reason": motivo})
-                self.timer_service.resume()
+                await self.send_to_vue({
+                    "type": "WORD_INCORRECT",
+                    "player": player,
+                    "reason": motivo
+                })
+                await self.resume_round_timer("empty_dictionary")
                 return
 
             match = process.extractOne(palabra_escuchada, palabras_validas, score_cutoff=80)
@@ -286,51 +409,45 @@ class ConnectionManager:
                     es_valida_final = True
 
             if es_valida_final:
-                print(f"✅ ¡VÁLIDA! Escuchado: '{palabra_escuchada}' -> Match: '{palabra_final}'")
-                self.timer_service.stop()
+                print(f"✅ ¡VÁLIDA! Jugador {player} | Escuchado: '{palabra_escuchada}' -> Match: '{palabra_final}'")
+
+                # El tiempo se detiene por completo.
+                await self.stop_round_timer("word_correct")
+
                 await self.send_to_esp32({"type": "CMD_LED", "state": 10})
-                await self.send_to_esp32({
-                    "type": "CMD_SEQUENCE",
-                    "files": ["5_1_0_correct", "5_1_1_es_correcto"]
-                })
+                await self.send_to_esp32({"type": "PLAY", "id": "5_1_0_correct"})
+                await asyncio.sleep(1.2)
+                await self.send_to_esp32({"type": "PLAY", "id": "5_1_1_es_correcto"})
                 await self.send_to_vue({
                     "type": "WORD_CORRECT",
-                    "word": palabra_final.capitalize()
+                    "player": player,
+                    "word": palabra_final.capitalize(),
+                    "heard": palabra_escuchada
                 })
             else:
                 motivo = f"'{palabra_escuchada}' no cumple la regla de {categoria} o no está en el mazo {dificultad}."
                 print(f"❌ RECHAZADA: {motivo}")
+
                 await self.send_to_esp32({"type": "CMD_LED", "state": 11})
-                await self.send_to_esp32({
-                    "type": "CMD_SEQUENCE",
-                    "files": ["5_2_0_incorrect", "5_2_1_otra_oportunidad"]
-                })
+                await self.send_to_esp32({"type": "PLAY", "id": "5_2_0_incorrect"})
+                await asyncio.sleep(1.2)
+                await self.send_to_esp32({"type": "PLAY", "id": "5_2_1_otra_oportunidad"})
+
                 await self.send_to_vue({
                     "type": "WORD_INCORRECT",
-                    "reason": motivo
+                    "player": player,
+                    "reason": motivo,
+                    "heard": palabra_escuchada
                 })
-                self.timer_service.resume()
 
-        except sr.UnknownValueError:
-            print("❌ Google no entendió el audio.")
-            await self.send_to_esp32({"type": "CMD_LED", "state": 11})
-            await self.send_to_esp32({
-                "type": "CMD_SEQUENCE",
-                "files": ["5_2_0_incorrect", "5_2_1_otra_oportunidad"]
-            })
-            await self.send_to_vue({"type": "WORD_INCORRECT", "reason": "No se entendió la palabra"})
-            self.timer_service.resume()
-
-        except sr.RequestError as e:
-            print(f"❌ Error de conexión con Google Speech: {e}")
-            self.timer_service.resume()
+                # Si es incorrecta, continúa desde el tiempo que sobraba.
+                await self.resume_round_timer("word_incorrect")
 
         except Exception as e:
             print(f"❌ Error inesperado procesando voz: {e}")
-            self.timer_service.resume()
+            await self.resume_round_timer("voice_exception")
 
         finally:
-            self.audio_buffer.clear()
             self.voice_task_running = False
 
 
@@ -347,56 +464,76 @@ async def process_esp32_event(data: dict):
     msg_type = data.get("type", "")
     action = data.get("action", "")
     value = data.get("value", "")
+    event = data.get("event", "")
     now = time.time()
 
-    if msg_type in ("SYSTEM", "DEBUG", "ERROR"):
+    if msg_type == "SYSTEM":
+        print(f"📥 ESP32 -> {data}")
+
+        if event == "MIC_STREAM_STARTED":
+            player = int(data.get("player", 0))
+
+            if player not in (1, 2):
+                print("⚠️ MIC_STREAM_STARTED con player inválido.")
+                return
+            
+            if player != manager.current_player:
+                print(f"⚠️ MIC_STREAM_STARTED ignorado: jugador {player} no tiene el turno actual ({manager.current_player}).")
+                return
+
+            if (now - manager.last_mic_start_time) < 0.15:
+                print("⚠️ MIC_STREAM_STARTED rebotado ignorado.")
+                return
+
+            if manager.timer_service.get_remaining_time() <= 0:
+                print("⚠️ MIC_STREAM_STARTED ignorado porque la ronda ya terminó.")
+                return
+
+            if manager.voice_task_running:
+                print("⚠️ MIC_STREAM_STARTED ignorado porque hay validación en curso.")
+                return
+
+            manager.last_mic_start_time = now
+            manager.is_mic_streaming = True
+            manager.current_mic_player = player
+            manager.pending_upload_player = 0
+
+            # Al activar mic, el tiempo se congela.
+            await manager.pause_round_timer("voice_capture")
+
+            await manager.send_to_vue({
+                "type": "MIC_ACTIVE",
+                "player": player
+            })
+            return
+
+        if event == "MIC_STREAM_STOPPED":
+            player = int(data.get("player", 0))
+
+            if (now - manager.last_mic_stop_time) < 0.15:
+                print("⚠️ MIC_STREAM_STOPPED rebotado ignorado.")
+                return
+
+            manager.last_mic_stop_time = now
+            manager.is_mic_streaming = False
+            manager.pending_upload_player = player
+            manager.current_mic_player = 0
+
+            # El tiempo sigue congelado mientras se sube/valida.
+            await manager.send_to_vue({
+                "type": "MIC_INACTIVE",
+                "player": player,
+                "bytes": 0
+            })
+            return
+
+        return
+
+    if msg_type in ("DEBUG", "ERROR", "WARN"):
         print(f"📥 ESP32 -> {data}")
         return
 
-    if msg_type == "MIC_START":
-        if manager.is_mic_streaming:
-            print("⚠️ MIC_START duplicado ignorado.")
-            return
-
-        if (now - manager.last_mic_start_time) < 0.25:
-            print("⚠️ MIC_START rebotado ignorado.")
-            return
-
-        manager.last_mic_start_time = now
-        manager.is_mic_streaming = True
-        manager.audio_buffer.clear()
-        manager.timer_service.pause()
-        print("🎙️ MIC_START recibido")
-        return
-
-    if msg_type == "MIC_STOP":
-        if not manager.is_mic_streaming:
-            print("⚠️ MIC_STOP sin streaming activo, ignorado.")
-            return
-
-        if (now - manager.last_mic_stop_time) < 0.25:
-            print("⚠️ MIC_STOP rebotado ignorado.")
-            return
-
-        manager.last_mic_stop_time = now
-        manager.is_mic_streaming = False
-        print("🛑 MIC_STOP recibido")
-        asyncio.create_task(manager.handle_voice_validation())
-        return
-
     if msg_type != "HW_EVENT":
-        return
-
-    if action in ("BTN_TALK_START", "BTN_TALK_STOP"):
-        print(f"⚠️ Evento antiguo de talk ignorado: {action}")
-        return
-
-    if action == getattr(HW_ACTIONS, "TALK_START", "__NO_MATCH__"):
-        print("⚠️ TALK_START antiguo ignorado.")
-        return
-
-    if action == getattr(HW_ACTIONS, "TALK_STOP", "__NO_MATCH__"):
-        print("⚠️ TALK_STOP antiguo ignorado.")
         return
 
     current_time = time.time()
@@ -426,7 +563,7 @@ async def process_esp32_event(data: dict):
 
 
 # =============================
-# HILO DE ESCUCHA SERIAL
+# HILO DE ESCUCHA SERIAL (solo JSON)
 # =============================
 def serial_listen_thread(loop, serial_conn):
     if not serial_conn or not serial_conn.is_open:
@@ -440,31 +577,7 @@ def serial_listen_thread(loop, serial_conn):
         try:
             if serial_conn.in_waiting > 0:
                 chunk = serial_conn.read(serial_conn.in_waiting)
-
-                if manager.is_mic_streaming:
-                    marker = b'{"type":"MIC_STOP"}'
-                    idx = chunk.find(marker)
-
-                    if idx != -1:
-                        audio_part = chunk[:idx]
-                        if audio_part:
-                            manager.audio_buffer.extend(audio_part)
-
-                        text_buffer += chunk[idx:]
-                        manager.is_mic_streaming = False
-                        print(f"📝 Fin de streaming detectado. Bytes capturados: {len(manager.audio_buffer)}")
-
-                        if len(manager.audio_buffer) >= 4000:
-                            asyncio.run_coroutine_threadsafe(
-                                manager.handle_voice_validation(),
-                                loop
-                            )
-                        else:
-                            print(f"⚠️ Stream terminado con muy poco audio: {len(manager.audio_buffer)} bytes")
-                    else:
-                        manager.audio_buffer.extend(chunk)
-
-                else:
+                if chunk:
                     text_buffer += chunk
 
                 while b"\n" in text_buffer:
@@ -484,7 +597,7 @@ def serial_listen_thread(loop, serial_conn):
                     except Exception:
                         print(f"⚠️ Línea serial ignorada: {line}")
 
-            time.sleep(0.005)
+            time.sleep(0.003)
 
         except Exception as e:
             print(f"⚠️ Error serial: {e}")
@@ -532,18 +645,94 @@ async def websocket_endpoint(websocket: WebSocket):
                     "dificultad": data.get("dificultad"),
                     "silaba": data.get("silaba")
                 }
-                print(f"🃏 Carta fijada en Back: {manager.current_card}")
+                manager.current_player = int(data.get("turno", 1))
+                print(f"🃏 Carta fijada en Back: {manager.current_card} | turno inicial: {manager.current_player}")
 
             elif data.get("type") == "START_ROUND":
-                manager.timer_service.stop()
+                await manager.stop_round_timer("restart_round")
                 await manager.send_to_esp32({"type": "START_TIC_TAC"})
-                await manager.timer_service.start(10)
+                await manager.start_round_timer(ROUND_SECONDS, "start_round")
+
+            elif data.get("type") == "UI_RESET_GAME":
+                print("🔄 Reset global solicitado desde frontend")
+
+                manager.current_card = {}
+                manager.is_mic_streaming = False
+                manager.current_mic_player = 0
+                manager.pending_upload_player = 0
+                manager.voice_task_running = False
+
+                await manager.stop_round_timer("ui_reset")
+                await manager.send_to_esp32({"type": "STOP_ALL"})
+            
+            elif data.get("type") == "NEXT_TURN":
+                next_player = int(data.get("player", 1))
+                total_ms = int(data.get("totalMs", 10000))
+                total_seconds = max(1.0, total_ms / 1000.0)
+
+                manager.current_player = next_player
+                manager.is_mic_streaming = False
+                manager.current_mic_player = 0
+                manager.pending_upload_player = 0
+
+                print(f"🔁 NEXT_TURN recibido -> player={next_player}, totalMs={total_ms}")
+
+                await manager.stop_round_timer("next_turn_reset")
+                await manager.send_to_esp32({"type": "START_TIC_TAC"})
+                await manager.start_round_timer(total_seconds, "next_turn")
 
     except WebSocketDisconnect:
         manager.disconnect(websocket, "VUE")
     except Exception as e:
         print(f"❌ Error en websocket VUE: {e}")
         manager.disconnect(websocket, "VUE")
+
+
+# =============================
+# ENDPOINT AUDIO DESDE FRONT
+# =============================
+@app.post("/voice/upload")
+async def upload_voice_audio(
+    player: int = Form(...),
+    audio_file: UploadFile = File(...)
+):
+    try:
+        if player not in (1, 2):
+            raise HTTPException(status_code=400, detail="Player inválido")
+
+        file_bytes = await audio_file.read()
+        if not file_bytes:
+            raise HTTPException(status_code=400, detail="Archivo de audio vacío")
+
+        filename = (audio_file.filename or "").lower()
+        content_type = (audio_file.content_type or "").lower()
+
+        if not filename.endswith(".wav") and "wav" not in content_type:
+            raise HTTPException(
+                status_code=400,
+                detail="El backend espera audio WAV desde el frontend"
+            )
+
+        print(
+            f"📥 Audio recibido desde front: "
+            f"player={player}, bytes={len(file_bytes)}, "
+            f"filename={audio_file.filename}, content_type={audio_file.content_type}"
+        )
+
+        await manager.handle_voice_validation_from_wav(player, file_bytes)
+        manager.pending_upload_player = 0
+
+        return {
+            "ok": True,
+            "player": player,
+            "bytes": len(file_bytes)
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error en /voice/upload: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # =============================

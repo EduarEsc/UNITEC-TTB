@@ -11,7 +11,9 @@
 // =============================
 // DEBOUNCE INDIVIDUAL POR ENTRADA
 // =============================
-const unsigned long debounceDelay = 120;
+unsigned long lastMicToggleTime = 0;
+const unsigned long micToggleCooldown = 350;
+const unsigned long debounceDelay = 50;
 
 unsigned long lastSelectDebounceTime = 0;
 unsigned long lastTurnoDebounceTime  = 0;
@@ -142,6 +144,13 @@ void handleMicToggle() {
     bool currP1 = digitalRead(BTN_P1_PIN);
     bool currP2 = digitalRead(BTN_P2_PIN);
 
+    // Bloquea toggles muy seguidos
+    if (millis() - lastMicToggleTime < micToggleCooldown) {
+        lastStateP1 = currP1;
+        lastStateP2 = currP2;
+        return;
+    }
+
     bool p1Clicked = isFallingEdge(currP1, lastStateP1);
     bool p2Clicked = isFallingEdge(currP2, lastStateP2);
 
@@ -149,38 +158,36 @@ void handleMicToggle() {
     if (p1Clicked && (millis() - lastP1DebounceTime >= debounceDelay)) {
         lastP1DebounceTime = millis();
 
-        // Si no hay mic activo, P1 lo toma
         if (!micService.isStreaming() && activeMicPlayer == 0) {
             activeMicPlayer = 1;
-            micService.startStreaming();
+            lastMicToggleTime = millis();   // AQUÍ
+            micService.startStreaming(1);
             ledService.setEstado(BTN_PLAYER_FLASH);
         }
-        // Si P1 ya tenía el mic activo, lo cierra
         else if (micService.isStreaming() && activeMicPlayer == 1) {
+            lastMicToggleTime = millis();   // AQUÍ
             micService.stopStreaming();
             activeMicPlayer = 0;
             ledService.setEstado(VISTA_JUEGO);
         }
-        // Si el mic lo tiene otro jugador, ignoramos el clic
     }
 
     // --- JUGADOR 2 ---
     if (p2Clicked && (millis() - lastP2DebounceTime >= debounceDelay)) {
         lastP2DebounceTime = millis();
 
-        // Si no hay mic activo, P2 lo toma
         if (!micService.isStreaming() && activeMicPlayer == 0) {
             activeMicPlayer = 2;
-            micService.startStreaming();
+            lastMicToggleTime = millis();   // AQUÍ
+            micService.startStreaming(2);
             ledService.setEstado(BTN_PLAYER_FLASH);
         }
-        // Si P2 ya tenía el mic activo, lo cierra
         else if (micService.isStreaming() && activeMicPlayer == 2) {
+            lastMicToggleTime = millis();   // AQUÍ
             micService.stopStreaming();
             activeMicPlayer = 0;
             ledService.setEstado(VISTA_JUEGO);
         }
-        // Si el mic lo tiene otro jugador, ignoramos el clic
     }
 
     lastStateP1 = currP1;
@@ -210,21 +217,15 @@ void loop() {
     ledService.update();
     audioService.loop();
 
-    // Mientras el mic está activo:
-    // - seguimos capturando audio
-    // - solo permitimos clic de P1/P2 para cerrar
     if (micService.isStreaming()) {
-        micService.update();
+        micService.update(); // ahora no hace captura real
         handleMicToggle();
         return;
     }
 
-    // Navegación normal
     handleButtonSelect();
     handleButtonTurno();
     handleButtonCategoria();
     handleJoystick();
-
-    // Micrófono en modo toggle
     handleMicToggle();
 }

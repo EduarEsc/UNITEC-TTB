@@ -3,7 +3,11 @@
 
 #include <Arduino.h>
 
-#define SERIAL_BAUD 115200
+// IMPORTANTE:
+// 16 kHz * 16 bits * mono = 32 KB/s aprox.
+// A 115200 baud NO alcanza.
+// 921600 sí da margen suficiente para audio + eventos.
+#define SERIAL_BAUD 921600
 
 // =============================
 // I2S ENTRADA (Micrófono INMP441)
@@ -22,8 +26,6 @@
 // =============================
 // PUERTOS I2S
 // =============================
-// La librería ESP32-audioI2S usa mejor I2S0 para salida.
-// Dejamos el micrófono en I2S1 para evitar conflicto TX/RX.
 #define I2S_DAC_PORT I2S_NUM_0
 #define I2S_MIC_PORT I2S_NUM_1
 

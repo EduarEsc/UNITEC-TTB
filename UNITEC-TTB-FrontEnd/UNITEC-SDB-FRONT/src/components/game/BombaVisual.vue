@@ -4,23 +4,26 @@ import { computed } from 'vue';
 interface Props {
     tiempo: number;
     explotada: boolean;
+    pausada?: boolean;
 }
 
-const props = defineProps<Props>();
+const props = withDefaults(defineProps<Props>(), {
+    pausada: false
+});
 
 const escalaBomba = computed(() => {
     if (props.explotada) return 1.5;
-    // Empezamos a crecer desde el segundo 7
+
     if (props.tiempo <= 7) {
         const progreso = (7 - props.tiempo) / 7;
-        return 1 + (progreso * 0.4); // Crece hasta 1.4
+        return 1 + (progreso * 0.4);
     }
+
     return 1;
 });
 
-// Clases dinámicas para la intensidad del peligro
-const estaVibrando = computed(() => props.tiempo <= 7 && !props.explotada);
-const esCritico = computed(() => props.tiempo <= 3 && !props.explotada);
+const estaVibrando = computed(() => props.tiempo <= 7 && !props.explotada && !props.pausada);
+const esCritico = computed(() => props.tiempo <= 3 && !props.explotada && !props.pausada);
 </script>
 
 <template>
@@ -28,7 +31,8 @@ const esCritico = computed(() => props.tiempo <= 3 && !props.explotada);
         <div class="bomb-container" :class="{
             'is-vibrating': estaVibrando,
             'is-critical': esCritico,
-            'has-exploded': props.explotada
+            'has-exploded': props.explotada,
+            'is-paused': props.pausada
         }">
             <Transition name="zoom-boom" mode="out-in">
                 <img v-if="!props.explotada" key="bomb" src="@/assets/bomba.png" class="bomb-img"
@@ -39,8 +43,7 @@ const esCritico = computed(() => props.tiempo <= 3 && !props.explotada);
         </div>
 
         <div v-if="!props.explotada" class="bomb-shadow"
-            :style="{ transform: `scale(${escalaBomba * 0.7})`, opacity: 0.3 + (escalaBomba - 1) }">
-        </div>
+            :style="{ transform: `scale(${escalaBomba * 0.7})`, opacity: 0.3 + (escalaBomba - 1) }"></div>
     </div>
 </template>
 

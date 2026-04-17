@@ -3,7 +3,6 @@ import { onMounted, onUnmounted, computed, watch, ref } from 'vue';
 import { useGameStore } from '@/stores/game';
 import { useRouter } from 'vue-router';
 
-// Importación de tus nuevos componentes
 import PlayerCard from '@/components/game/PlayerCard.vue';
 import GameTimer from '@/components/game/GameTimer.vue';
 import GameCard from '@/components/game/GameCard.vue';
@@ -11,82 +10,151 @@ import BombaVisual from '@/components/game/BombaVisual.vue';
 import GameControls from '@/components/game/GameControls.vue';
 import WinnerControls from '@/components/game/WinnerControls.vue';
 import InteractionOverlay from '@/components/game/InteractionOverlay.vue';
+import { send } from 'vite';
+import { sendEvent } from '@/services/websocket';
 
 const gameStore = useGameStore();
 const router = useRouter();
 
-// Lógica de tiempo local
 const tiempoRestante = ref(10);
 let timerInterval: number | null = null;
+
 const mostrarGanador = ref(false);
+const vidaDescontadaEnExplosion = ref(false);
+let siguienteRondaTimeout: number | null = null;
 
-// --- LÓGICA DE CONTROL ---
+const estadoVozJugador1 = computed(() => {
+    if (gameStore.micPlayer !== 1) return 'none';
+    if (gameStore.micOn) return 'listening';
+    if (gameStore.micProcessing) return 'processing';
+    return 'none';
+});
 
-const iniciarCronometro = () => {
-    detenerCronometro();
-    tiempoRestante.value = 10;
+const estadoVozJugador2 = computed(() => {
+    if (gameStore.micPlayer !== 2) return 'none';
+    if (gameStore.micOn) return 'listening';
+    if (gameStore.micProcessing) return 'processing';
+    return 'none';
+});
+
+const cronometroPausado = computed(() => {
+    return (
+        gameStore.timerState === 'paused' ||
+        gameStore.micOn ||
+        gameStore.micProcessing ||
+        gameStore.bombaExplotada ||
+        gameStore.modalActivo === 'WINNER'
+    );
+});
+
+const syncTiempoDesdeStore = () => {
+    tiempoRestante.value = gameStore.tiempoRestanteSegundos;
+};
+
+const detenerCronometroLocal = () => {
+    if (timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+    }
+};
+
+const iniciarTickVisual = () => {
+    detenerCronometroLocal();
+
     timerInterval = window.setInterval(() => {
-        if (tiempoRestante.value > 0 && !gameStore.bombaExplotada) {
-            tiempoRestante.value--;
-        } else if (tiempoRestante.value === 0) {
-            procesarFallo();
-        }
-    }, 1000);
+        if (gameStore.timerState !== 'started' && gameStore.timerState !== 'resumed') return;
+
+        const elapsed = Date.now() - gameStore.timerLastSyncAt;
+        const remainingMs = Math.max(0, gameStore.timerRemainingMs - elapsed);
+
+        tiempoRestante.value = Math.max(0, Math.ceil(remainingMs / 1000));
+    }, 120);
 };
 
-const detenerCronometro = () => {
-    if (timerInterval) clearInterval(timerInterval);
-};
+const aplicarSyncTimer = () => {
+    syncTiempoDesdeStore();
 
-const procesarFallo = () => {
-    detenerCronometro();
-    gameStore.detonarBomba(); // Activa bombaExplotada = true
-    gameStore.descontarVida(); // Descuenta vida al turno actual
-    validarEstadoPartida();
+    if (gameStore.timerState === 'started' || gameStore.timerState === 'resumed') {
+        iniciarTickVisual();
+    } else {
+        detenerCronometroLocal();
+    }
 };
 
 const validarEstadoPartida = () => {
     if (gameStore.jugador1.vidas <= 0 || gameStore.jugador2.vidas <= 0) {
-        setTimeout(() => { mostrarGanador.value = true; }, 1200);
+        setTimeout(() => {
+            mostrarGanador.value = true;
+            gameStore.abrirModalWinner();
+        }, 1200);
     }
 };
 
-// --- NAVEGACIÓN ---
-
 const continuarRonda = () => {
-    gameStore.bombaExplotada = false;
-    gameStore.cambiarTurno();
-    iniciarCronometro();
+    mostrarGanador.value = false;
+    vidaDescontadaEnExplosion.value = false;
+
+    gameStore.resetEstadoRonda();
+    gameStore.prepararSiguienteRonda();
 };
 
-const irADados = () => router.push('/dados');
-const irAInicio = () => router.push('/reglas');
+const irADados = () => {
+    gameStore.reiniciarPartidaCompleta();
+    router.push('/dados');
+};
 
-// Escuchar cambios de turno (por acierto en hardware)
-watch(() => gameStore.turnoActual, () => {
-    if (!gameStore.bombaExplotada) iniciarCronometro();
+const irAInicio = () => {
+    gameStore.reiniciarPartidaCompleta();
+    router.push('/reglas');
+};
+
+// =======================
+// WATCHERS DE SINCRONÍA
+// =======================
+watch(
+    () => [gameStore.timerState, gameStore.timerRemainingMs, gameStore.timerLastSyncAt],
+    () => {
+        aplicarSyncTimer();
+    },
+    { deep: true }
+);
+
+watch(() => gameStore.bombaExplotada, (exploto) => {
+    if (!exploto) return;
+
+    detenerCronometroLocal();
+    gameStore.descontarVida();
+    validarEstadoPartida();
 });
 
 onMounted(() => {
-    iniciarCronometro();
+    syncTiempoDesdeStore();
+    aplicarSyncTimer();
 });
 
 onUnmounted(() => {
-    detenerCronometro();
+    detenerCronometroLocal();
+
+    if (siguienteRondaTimeout) {
+        clearTimeout(siguienteRondaTimeout);
+        siguienteRondaTimeout = null;
+    }
 });
 </script>
 
 <template>
     <div class="game-layout" :class="{ 'bg-danger': gameStore.bombaExplotada }">
-
         <header class="game-header">
             <PlayerCard :nickname="gameStore.jugador1.nickname" :puntos="gameStore.jugador1.puntos"
-                :vidas="gameStore.jugador1.vidas" :esSuTurno="gameStore.turnoActual === 1" :posicion="1" />
+                :vidas="gameStore.jugador1.vidas" :esSuTurno="gameStore.turnoActual === 1" :posicion="1"
+                :estadoVoz="estadoVozJugador1" />
 
-            <GameTimer :tiempo="tiempoRestante" :explotada="gameStore.bombaExplotada" />
+            <GameTimer :tiempo="tiempoRestante" :explotada="gameStore.bombaExplotada"
+                :pausado="gameStore.micOn || gameStore.timerState === 'paused'" :procesando="gameStore.micProcessing" />
 
             <PlayerCard :nickname="gameStore.jugador2.nickname" :puntos="gameStore.jugador2.puntos"
-                :vidas="gameStore.jugador2.vidas" :esSuTurno="gameStore.turnoActual === 2" :posicion="2" />
+                :vidas="gameStore.jugador2.vidas" :esSuTurno="gameStore.turnoActual === 2" :posicion="2"
+                :estadoVoz="estadoVozJugador2" />
         </header>
 
         <main class="game-main">
@@ -96,15 +164,17 @@ onUnmounted(() => {
 
                 <div class="vs-divider"></div>
 
-                <BombaVisual :tiempo="tiempoRestante" :explotada="gameStore.bombaExplotada" />
+                <BombaVisual :tiempo="tiempoRestante" :explotada="gameStore.bombaExplotada"
+                    :pausada="gameStore.micOn || gameStore.micProcessing || gameStore.timerState === 'paused'" />
             </div>
         </main>
 
         <footer class="game-footer">
-            <InteractionOverlay :micOn="gameStore.micOn"
-                :nombreJugadorActivo="gameStore.turnoActual === 1 ? gameStore.jugador1.nickname : gameStore.jugador2.nickname"
+            <InteractionOverlay :micOn="gameStore.micOn" :micProcessing="gameStore.micProcessing"
+                :nombreJugadorActivo="gameStore.nombreJugadorMicActivo"
                 :ultimaPalabraEscuchada="gameStore.ultimaPalabraEscuchada"
-                :esPalabraValida="gameStore.esPalabraValida" />
+                :ultimaPalabraValidada="gameStore.ultimaPalabraValidada" :esPalabraValida="gameStore.esPalabraValida"
+                :ultimoMotivoError="gameStore.ultimoMotivoError" />
         </footer>
 
         <GameControls :mostrar="gameStore.bombaExplotada && !mostrarGanador"
@@ -115,7 +185,6 @@ onUnmounted(() => {
         <WinnerControls :mostrar="mostrarGanador"
             :ganadorNickname="gameStore.jugador1.vidas <= 0 ? gameStore.jugador2.nickname : gameStore.jugador1.nickname"
             @reiniciar="irADados" @salir="irAInicio" />
-
     </div>
 </template>
 

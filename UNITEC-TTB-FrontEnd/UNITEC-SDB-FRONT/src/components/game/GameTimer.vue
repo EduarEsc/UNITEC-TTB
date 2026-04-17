@@ -4,31 +4,47 @@ import { computed } from 'vue';
 interface Props {
     tiempo: number;
     explotada: boolean;
+    pausado?: boolean;
+    procesando?: boolean;
 }
 
-const props = defineProps<Props>();
+const props = withDefaults(defineProps<Props>(), {
+    pausado: false,
+    procesando: false
+});
 
-// Determina si estamos en los últimos 3 segundos para activar la alerta visual
-const esCritico = computed(() => props.tiempo <= 3 && props.tiempo > 0);
+const esCritico = computed(() => props.tiempo <= 3 && props.tiempo > 0 && !props.pausado && !props.procesando);
 
-// Define la etiqueta de texto según el estado de la bomba
-const etiquetaEtado = computed(() => props.explotada ? '¡DETONADA!' : 'SEGUNDOS');
+const etiquetaEtado = computed(() => {
+    if (props.explotada) return '¡DETONADA!';
+    if (props.procesando) return 'VALIDANDO';
+    if (props.pausado) return 'ESCUCHANDO';
+    return 'SEGUNDOS';
+});
 </script>
 
 <template>
     <div class="timer-section">
         <div class="timer-circle" :class="{
             'near-explosion': esCritico,
-            'exploded': props.explotada
+            'exploded': props.explotada,
+            'paused': props.pausado,
+            'processing': props.procesando
         }">
             <Transition name="pop" mode="out-in">
-                <span :key="props.explotada ? 'boom' : props.tiempo" class="seconds">
-                    {{ props.explotada ? '💥' : props.tiempo }}
+                <span
+                    :key="props.explotada ? 'boom' : props.procesando ? 'processing' : props.pausado ? 'paused' : props.tiempo"
+                    class="seconds">
+                    {{ props.explotada ? '💥' : props.procesando ? '...' : props.tiempo }}
                 </span>
             </Transition>
         </div>
 
-        <p class="timer-label" :class="{ 'label-exploded': props.explotada }">
+        <p class="timer-label" :class="{
+            'label-exploded': props.explotada,
+            'label-paused': props.pausado,
+            'label-processing': props.procesando
+        }">
             {{ etiquetaEtado }}
         </p>
     </div>

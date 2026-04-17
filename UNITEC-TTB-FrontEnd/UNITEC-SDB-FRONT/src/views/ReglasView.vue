@@ -102,67 +102,72 @@ const irAlRegistroManualmente = () => {
 </template>
 
 <style scoped>
-/* Mantén tus estilos y añade estos para feedback de hardware */
 .hw-hint {
     margin-top: 10px;
-    font-size: 0.9rem;
-    color: #733131;
-    opacity: 0.7;
+    font-size: 0.95rem;
+    color: #bdc3c7;
+    opacity: 0.9;
     font-style: italic;
+    text-align: center;
 }
 
 .btn-primary:active {
-    transform: scale(0.95);
-    background: #733131;
+    transform: scale(0.96);
 }
 
-/* CONTENEDOR PRINCIPAL: Controla que nada se mueva */
+/* =========================
+   CONTENEDOR PRINCIPAL
+========================= */
 .reglas-page-wrapper {
     width: 95%;
-    max-width: 1000px;
-    height: 90vh;
-    /* Ocupa casi toda la pantalla */
+    max-width: 1100px;
+    height: 100%;
     display: flex;
     flex-direction: column;
     align-items: center;
     margin: 0 auto;
+    color: #ecf0f1;
 }
 
 .reglamento-title {
     flex-shrink: 0;
-    /* No permite que el título se encoja o mueva */
-    margin-top: 20px;
-    color: #3e8ebf;
-    font-family: 'Georgia', serif;
-    font-size: 2.5rem;
-    margin-bottom: 20px;
+    margin-top: 8px;
+    margin-bottom: 22px;
+    color: #f5f6fa;
+    font-size: 2.7rem;
+    font-weight: 900;
+    letter-spacing: 1px;
+    text-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
 }
 
+/* =========================
+   CARD PRINCIPAL
+========================= */
 .main-card {
     flex: 1;
-    /* Toma todo el espacio disponible */
     width: 100%;
-    background: #fdf2f2;
-    border-radius: 25px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 28px;
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    /* Corta el contenido que se salga */
-    box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
-    border: 1px solid rgba(115, 49, 49, 0.1);
+    box-shadow:
+        0 20px 40px rgba(0, 0, 0, 0.28),
+        0 0 20px rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(10px);
 }
 
 .tabs-header {
     flex-shrink: 0;
     display: flex;
-    background: #d99a9a;
+    background: rgba(255, 255, 255, 0.04);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-/* SCROLL INTERNO: Esta es la clave */
 .tabs-body-scroll {
     flex: 1;
     overflow-y: auto;
-    /* Solo hay scroll aquí dentro */
     padding: 0;
 }
 
@@ -170,118 +175,218 @@ const irAlRegistroManualmente = () => {
     padding: 30px;
 }
 
-/* ESTILOS DE TABS REDISEÑADOS */
+/* =========================
+   TABS
+========================= */
+.tabs-header button {
+    flex: 1;
+    padding: 18px 12px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    font-weight: 800;
+    color: #bdc3c7;
+    transition: all 0.25s ease;
+    letter-spacing: 0.3px;
+}
+
+.tabs-header button:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: #ffffff;
+}
+
+.tabs-header button.active {
+    background: rgba(241, 196, 15, 0.12);
+    color: #f1c40f;
+    box-shadow: inset 0 -3px 0 #f1c40f;
+}
+
+/* =========================
+   BLOQUES INTERNOS
+========================= */
 .info-grid,
 .category-grid,
-.penalty-grid {
+.penalty-grid,
+.niveles-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
     gap: 20px;
     margin-bottom: 20px;
 }
 
 .info-card,
-.penalty-card {
-    background: white;
-    padding: 20px;
-    border-radius: 15px;
+.penalty-card,
+.nivel-card,
+.rule-detail-box {
+    background: rgba(255, 255, 255, 0.06);
+    padding: 22px;
+    border-radius: 20px;
     text-align: center;
-    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+    transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+}
+
+.info-card:hover,
+.penalty-card:hover,
+.nivel-card:hover,
+.rule-detail-box:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 16px 28px rgba(0, 0, 0, 0.24);
+    border-color: rgba(241, 196, 15, 0.22);
+}
+
+.info-card h3,
+.penalty-card h4,
+.modo-section h3 {
+    margin-top: 6px;
+    margin-bottom: 10px;
+    color: #ffffff;
+    font-weight: 900;
+}
+
+.info-card p,
+.penalty-card p,
+.nivel-card,
+.rule-detail-box p,
+.intro-text,
+.cat-explanation {
+    color: #d5d8dc;
+    line-height: 1.5;
 }
 
 .icon-circle {
+    width: 68px;
+    height: 68px;
+    margin: 0 auto 12px;
+    border-radius: 50%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
     font-size: 2rem;
-    margin-bottom: 10px;
+    background: rgba(241, 196, 15, 0.14);
+    box-shadow: 0 0 18px rgba(241, 196, 15, 0.14);
+}
+
+.category-grid {
+    margin-top: 20px;
 }
 
 .cat-item {
-    padding: 15px;
-    border-radius: 12px;
+    padding: 18px;
+    border-radius: 18px;
     text-align: center;
     color: white;
     display: flex;
     flex-direction: column;
+    gap: 6px;
+    font-weight: 800;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.2);
+    transition: transform 0.25s ease;
+}
+
+.cat-item:hover {
+    transform: translateY(-4px) scale(1.02);
+}
+
+.cat-item strong {
+    font-size: 1.4rem;
+    letter-spacing: 1px;
 }
 
 .tic {
-    background: #a64444;
+    background: linear-gradient(135deg, #2ecc71, #27ae60);
 }
 
 .tac {
-    background: #3e8ebf;
+    background: linear-gradient(135deg, #f1c40f, #f39c12);
+    color: #111;
 }
 
 .bum {
-    background: #733131;
+    background: linear-gradient(135deg, #e74c3c, #c0392b);
 }
 
 .rule-detail-box {
-    background: white;
-    padding: 20px;
-    border-radius: 15px;
-    margin-top: 20px;
+    margin-top: 18px;
+    text-align: left;
 }
 
-/* ESTILOS EXISTENTES MEJORADOS */
-.tabs-header button {
-    flex: 1;
-    padding: 18px 10px;
-    border: none;
-    background: none;
-    cursor: pointer;
-    font-weight: bold;
-    color: #733131;
-    transition: all 0.3s;
+.intro-text {
+    text-align: center;
+    font-size: 1.1rem;
+    font-weight: 700;
+    margin-bottom: 10px;
 }
 
-.tabs-header button.active {
-    background: #fdf2f2;
-    color: #3e8ebf;
+.modo-section {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.duelo-title {
+    text-align: center;
+    color: #f1c40f;
+    font-size: 1.4rem;
+    font-weight: 900;
+    letter-spacing: 1px;
 }
 
 .nivel-card {
-    background: white;
-    padding: 15px;
-    border-radius: 10px;
-    border-left: 5px solid #a64444;
+    text-align: left;
+    border-left: 6px solid transparent;
+    font-weight: 700;
 }
 
-.record-table {
-    width: 100%;
-    border-collapse: collapse;
-    background: white;
-    border-radius: 10px;
-    overflow: hidden;
+.n-facil {
+    border-left-color: #2ecc71;
 }
 
-.record-table th {
-    background: #733131;
-    color: white;
-    padding: 12px;
+.n-medio {
+    border-left-color: #f1c40f;
 }
 
-.record-table td {
-    padding: 12px;
-    border-bottom: 1px solid #eee;
-    text-align: center;
+.n-dificil {
+    border-left-color: #e74c3c;
 }
 
+.penalty-card.warning {
+    border-color: rgba(231, 76, 60, 0.35);
+    box-shadow: 0 0 18px rgba(231, 76, 60, 0.12);
+}
+
+/* =========================
+   BOTÓN PRINCIPAL
+========================= */
 .btn-primary {
     flex-shrink: 0;
-    /* El botón no se mueve */
-    margin: 20px 0;
-    padding: 15px 60px;
-    background: #a64444;
-    color: white;
+    margin: 24px 0 14px;
+    padding: 16px 58px;
+    background: linear-gradient(135deg, #f1c40f, #f39c12);
+    color: #111;
     border: none;
-    border-radius: 40px;
-    font-size: 1.2rem;
-    font-weight: bold;
+    border-radius: 999px;
+    font-size: 1.1rem;
+    font-weight: 900;
     cursor: pointer;
-    box-shadow: 0 8px 20px rgba(166, 68, 68, 0.3);
+    letter-spacing: 0.6px;
+    box-shadow:
+        0 10px 24px rgba(241, 196, 15, 0.25),
+        0 0 16px rgba(241, 196, 15, 0.18);
+    transition: transform 0.25s ease, box-shadow 0.25s ease;
 }
 
-/* Personalización del Scrollbar */
+.btn-primary:hover {
+    transform: translateY(-2px) scale(1.02);
+    box-shadow:
+        0 14px 28px rgba(241, 196, 15, 0.32),
+        0 0 22px rgba(241, 196, 15, 0.22);
+}
+
+/* =========================
+   SCROLLBAR
+========================= */
 .tabs-body-scroll::-webkit-scrollbar {
     width: 8px;
 }
@@ -291,12 +396,19 @@ const irAlRegistroManualmente = () => {
 }
 
 .tabs-body-scroll::-webkit-scrollbar-thumb {
-    background: #d99a9a;
+    background: rgba(241, 196, 15, 0.45);
     border-radius: 10px;
 }
 
+.tabs-body-scroll::-webkit-scrollbar-thumb:hover {
+    background: rgba(241, 196, 15, 0.75);
+}
+
+/* =========================
+   ANIMACIONES
+========================= */
 .animate-fade {
-    animation: fadeIn 0.4s ease-out;
+    animation: fadeIn 0.35s ease-out;
 }
 
 @keyframes fadeIn {
@@ -308,6 +420,30 @@ const irAlRegistroManualmente = () => {
     to {
         opacity: 1;
         transform: translateY(0);
+    }
+}
+
+/* =========================
+   RESPONSIVE
+========================= */
+@media (max-width: 768px) {
+    .reglamento-title {
+        font-size: 2rem;
+        text-align: center;
+    }
+
+    .padding-container {
+        padding: 20px;
+    }
+
+    .tabs-header button {
+        font-size: 0.82rem;
+        padding: 14px 8px;
+    }
+
+    .btn-primary {
+        width: 100%;
+        padding: 15px 20px;
     }
 }
 </style>

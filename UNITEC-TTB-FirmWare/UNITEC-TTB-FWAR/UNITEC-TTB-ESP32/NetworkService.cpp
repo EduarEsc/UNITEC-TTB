@@ -5,9 +5,12 @@
 // =============================
 // CONFIGURACIÓN DE RED
 // =============================
-static const char* ssid = "More";
-static const char* password = "uden5775";
-static const char* server_url_base = "http://10.252.207.203:8000/audios/";
+//static const char* ssid = "More";
+//static const char* password = "uden5775";
+//static const char* server_url_base = "http://10.252.207.203:8000/audios/";
+static const char* ssid = "INFINITUM09F7";
+static const char* password = "1q80IK50Qd";
+static const char* server_url_base = "http://192.168.1.70:8000/audios/";
 
 static bool wifiConnected = false;
 static String serialInputBuffer;
@@ -50,13 +53,10 @@ void setupNetwork() {
         Serial.println("{\"type\":\"ERROR\",\"event\":\"WIFI_FAILED\"}");
     }
 
-    // Pasamos la URL base al AudioService para fallback por WiFi
     audioService.setServerBaseUrl(server_url_base);
 
-    // Estado visual inicial
     ledService.setEstado(VISTA_REGLAS);
 
-    // Audio inicial: primero SD, si no WiFi
     delay(300);
     audioService.play("1_bienvenida", false);
 }
@@ -65,6 +65,8 @@ void setupNetwork() {
 // LOOP DE RED / SERIAL
 // =============================
 void updateNetwork() {
+    // Durante streaming del micrófono NO procesamos entrada por serial,
+    // para no mezclar lectura de comandos con la salida binaria del audio.
     if (micService.isStreaming()) {
         return;
     }
@@ -187,7 +189,8 @@ void processLocalMessage(String jsonPayload) {
         }
     }
     else if (type == "CMD_MIC_START") {
-        micService.startStreaming();
+        uint8_t player = doc["player"] | 0;
+        micService.startStreaming(player);
     }
     else if (type == "CMD_MIC_STOP") {
         micService.stopStreaming();
@@ -204,6 +207,7 @@ void processLocalMessage(String jsonPayload) {
         pong["mic"] = micService.isStreaming();
         pong["audio"] = audioService.isPlaying();
         pong["sd"] = audioService.isSdReady();
+        pong["activePlayer"] = micService.getActivePlayer();
         serializeJson(pong, Serial);
         Serial.println();
     }
