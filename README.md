@@ -4,5 +4,4 @@ El proposito del juego es recrear un juego donde podamos interactuar mediante co
 Dentro del repositorio se encuentran las carpetas que conforman las especificaciones de nuestro proyecto a realizar.
 Integrantes:
   Escudero Medina Eduar
-  Ledesma Caballero Gael
   Rodríguez Cervantes Miguel Ángel
